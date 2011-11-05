@@ -2,33 +2,32 @@
 #define _XPTHREAD_H
 
 /*
-**	xpthread - cross-platform multithreading library
-**	Written 2003-2008 by Timm S. Mueller <tmueller@neoscientists.org>
-**	Placed in the public domain, no copyrights apply.
+**	xpthread 2.0 - cross-platform multithreading library
+**  Copyright (c) 2003-2011 Timm S. Mueller, all rights reserved
+**	Licensed under the 3-clause BSD license, see COPYRIGHT
 **
 **	xpbase = xpthread_create(args)
 **		Creates a xpthread base handle that is anchored to the caller's
 **		context. Returns the handle, or NULL if initialization failed.
-**		The handle should be destroyed with a call to xpthread_destroy()
-**		when all work is done. Args is reserved for future extensions and
-**		must be NULL.
+**		The handle should be destroyed with a call to xpthread_destroy().
+**		Args is reserved for future extensions and must be NULL.
 **
 **	xpthread_destroy(xpbase)
 **		Destroys the xpthread handle and frees all associated resources.
 **
 **	thread = (*xpbase->createthread)(xpbase, function, userdata, taskname)
-**		Creates a new thread and attaches some userdata with it. If
-**		successful, the specified function will be running in a new
-**		thread immediately. Returns a thread handle, or NULL if something
+**		Creates a new thread and optionally attaches a name and some userdata
+**		with it. If successful, the specified function will be running in a
+**		new thread immediately. Returns a thread handle, or NULL if something
 **		went wrong. The handle returned must be destroyed with a call to
 **		xpbase->destroythread() when the thread is no longer needed (see
 **		annotations below).
 **
 **	(*xpbase->destroythread)(xpbase, thread)
 **		Destroys the specified thread. This function will block until the
-**		thread has concluded and exited properly. Threads are in no way
-**		killed or otherwise forcefully aborted - always leave them gently
-**		through their function exit.
+**		thread has concluded and exited properly. Threads are never killed
+**		or forcefully aborted - always leave them gently through their
+**		function exit.
 **
 **	thread = (*xpbase->findthread)(xpbase, name)
 **		Finds a thread by its name or, if name is NULL, returns the handle
@@ -126,11 +125,24 @@
 
 /*****************************************************************************/
 
+#if defined(XPT_PTHREADS)
+
 #include <stdlib.h>
 #include <stdint.h>
-
 typedef uint32_t XPUINT32;
 typedef int32_t XPINT32;
+
+#elif defined(XPT_WINDOWS)
+
+#include <windows.h>
+typedef DWORD XPUINT32;
+typedef LONG XPINT32;
+
+#else
+
+#error platform not supported
+
+#endif
 
 /* guaranteed 32bit unsigned integer: */
 typedef XPUINT32 XPSIGMASK;
@@ -179,7 +191,7 @@ struct XPBase
 	struct XPThread *(*findthread)(struct XPBase *, const char *name);
 	int (*renamethread)(struct XPBase *xpbase, struct XPThread *xpt, const char *newname);
 	size_t (*getname)(struct XPBase *xpbase, struct XPThread *xpt, char *namebuf, size_t namebuf_len);
-
+	
 	/* set/get userdata: */
 	void *(*getdata)(struct XPBase *, struct XPThread *thread);
 	void *(*setdata)(struct XPBase *, struct XPThread *thread, void *data);
@@ -202,24 +214,26 @@ struct XPBase
 	void (*subtime)(struct XPBase *xpbase, struct XPTime *a, const struct XPTime *b);
 	void (*addtime)(struct XPBase *xpbase, struct XPTime *a, const struct XPTime *b);
 	int (*cmptime)(struct XPBase *xpbase, const struct XPTime *a, const struct XPTime *b);
-
+	
 	/* intentionally undocumented (needed somewhere, but I forgot where) */
 	struct XPThread *(*refthread)(struct XPBase *xpbase, const char *name);
 	void (*unrefthread)(struct XPBase *xpbase, struct XPThread *xpt);
 	
-	/* "locks" are recursive and support r/o and r/w accesses: */
-	struct XPLock *(*createlock)(struct XPBase *xpbase);
-	void (*destroylock)(struct XPBase *xpbase, struct XPLock *);
-	void (*lock)(struct XPBase *xpbase, struct XPLock *);
-	void (*lockshared)(struct XPBase *xpbase, struct XPLock *);
-	void (*unlock)(struct XPBase *xpbase, struct XPLock *);
-
 	/* fast mutexes are as fast as possible, but may be busy looping */
 	struct XPFastMutex *(*createfastmutex)(struct XPBase *xpbase);
 	void (*destroyfastmutex)(struct XPBase *xpbase, struct XPFastMutex *mutex);
 	void (*lockfastmutex)(struct XPBase *xpbase, struct XPFastMutex *mutex);
 	int (*trylockfastmutex)(struct XPBase *xpbase, struct XPFastMutex *mutex);
 	void (*unlockfastmutex)(struct XPBase *xpbase, struct XPFastMutex *mutex);
+
+#if 0
+	/* "locks" are recursive and support r/o and r/w accesses (not tested): */
+	struct XPLock *(*createlock)(struct XPBase *xpbase);
+	void (*destroylock)(struct XPBase *xpbase, struct XPLock *);
+	void (*lock)(struct XPBase *xpbase, struct XPLock *);
+	void (*lockshared)(struct XPBase *xpbase, struct XPLock *);
+	void (*unlock)(struct XPBase *xpbase, struct XPLock *);
+#endif
 };
 
 extern struct XPBase *xpthread_create(void *args);

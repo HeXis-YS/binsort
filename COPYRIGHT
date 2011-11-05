@@ -1,7 +1,7 @@
 
 Binsort
 
-Copyright © 2011 Timm S. Müller
+Copyright (c) 2011 Timm S. Müller
 All rights reserved.
 
 ---------------------------------------------------------------------
@@ -17,6 +17,13 @@ Tiny Mersenne Twister
 
 Copyright (c) 2011 Mutsuo Saito, Makoto Matsumoto, Hiroshima
 University and The University of Tokyo. All rights reserved.
+
+---------------------------------------------------------------------
+
+XPThreads
+
+Copyright (c) 2003-2011 Timm S. Müller
+All rights reserved.
 
 ---------------------------------------------------------------------
 

@@ -1,10 +1,14 @@
 
 /*
-**	xpthread - Cross-platform multithreading library
-**	Written 2003-2008 by Timm S. Mueller <tmueller@neoscientists.org>
-**	Placed in the public domain, no copyrights apply.
+**	xpthread 2.0 - Cross-platform multithreading library
+**  Copyright (c) 2003-2011 Timm S. Mueller, all rights reserved
+**	Licensed under the 3-clause BSD license, see COPYRIGHT
+**
+**	CAVEATS:
+**	* timedwait() on Windows cannot wait longer than ~20 days
 */
 
+#include <assert.h>
 #include "xpthread.h"
 
 #define VERSION		2
@@ -18,7 +22,6 @@
 
 #if defined(XPT_PTHREADS)
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +52,37 @@ typedef pthread_key_t XPTSLKEY;
 	(pthread_create(thread, NULL, (void *(*)(void *)) (func), data) == 0)
 #define XPT_THREAD_DESTROY(thread) (pthread_join(*(thread), NULL), 0)
 #define XPT_THREAD_EXIT() (0)
+
+#elif defined(XPT_WINDOWS)
+
+/*#include <windows.h>*/
+#include <process.h>
+typedef unsigned _stdcall XPTHREADENTRY;
+typedef CRITICAL_SECTION XPMUTEX;
+typedef HANDLE XPEVENT;
+typedef HANDLE XPTHREAD;
+typedef DWORD XPTSLKEY;
+#define XPT_MUTEX_INIT(lock) (InitializeCriticalSection(lock), 1)
+#define XPT_MUTEX_DESTROY(lock) DeleteCriticalSection(lock)
+#define XPT_MUTEX_LOCK(lock) EnterCriticalSection(lock)
+#define XPT_MUTEX_TRYLOCK(lock) TryEnterCriticalSection(lock)
+#define XPT_MUTEX_UNLOCK(lock) LeaveCriticalSection(lock)
+#define XPT_TLS_INIT(key) ((*(key) = TlsAlloc()) != 0xffffffff)
+#define XPT_TLS_DESTROY(key) TlsFree(*(key))
+#define XPT_TLS_SET(key, val) TlsSetValue(key, (void *) (val))
+#define XPT_TLS_GET(key) TlsGetValue(key)
+#define XPT_EVENT_INIT(event) \
+	(*(event) = CreateEvent(NULL, FALSE, FALSE, NULL))
+#define XPT_EVENT_DESTROY(event) CloseHandle(*(event))
+#define XPT_EVENT_SIGNAL(event) SetEvent(*(event))
+#define XPT_EVENT_WAIT(event, lock) (LeaveCriticalSection(lock), \
+	WaitForSingleObject(*(event), INFINITE), EnterCriticalSection(lock), 0)
+#define XPT_THREAD_INIT(thread, func, data) \
+	(*(thread) = _beginthreadex(NULL, 0, func, data, 0, NULL))
+#define XPT_THREAD_DESTROY(thread) \
+	(WaitForSingleObject(*(thread), INFINITE), CloseHandle(*(thread)), 0)
+#define XPT_THREAD_EXIT() (_endthreadex(0), 0)
+#define XPT_WIN32
 
 #else
 
@@ -133,6 +167,10 @@ struct XPLockWait
 	int xplw_Shared;
 };
 
+static void xp_gettime(struct XPBase *xpbase, struct XPTime *time);
+static void xp_subtime(struct XPBase *xpbase, struct XPTime *a,
+	const struct XPTime *b);
+
 /*****************************************************************************/
 /*
 **	Platform-specific:
@@ -180,9 +218,37 @@ static void xp_gettime(struct XPBase *xpbase, struct XPTime *time)
 	time->xptm_USec = tv.tv_usec;
 }
 
-#else
+#elif defined(XPT_WINDOWS)
 
-#error platform not supported
+static int xpi_timedwait(struct XPBase *xpbase, XPEVENT *event,
+	XPMUTEX *lock, const struct XPTime *time)
+{
+	struct XPTime curt, waitt;
+	LONG ms;
+	int occurred = 0;
+	XPT_MUTEX_UNLOCK(lock);
+	waitt = *time;
+	xp_gettime(xpbase, &curt);
+	xp_subtime(xpbase, &waitt, &curt);
+	if (waitt.xptm_Sec < 0)
+		return 1; /* timeout occurred */
+	ms = waitt.xptm_Sec * 1000;
+	ms += waitt.xptm_USec / 1000;
+	occurred = (WaitForSingleObject(event, ms) == WAIT_TIMEOUT);
+	XPT_MUTEX_UNLOCK(lock);
+	return occurred;
+}
+
+static void xp_gettime(struct XPBase *xpbase, struct XPTime *time)
+{
+	LARGE_INTEGER filet;
+	LONGLONG t;
+	GetSystemTimeAsFileTime((LPFILETIME) &filet);
+	t = filet.QuadPart / 10; /* micros */
+	t -= 11644473600000000ULL; /* 1601 -> 1970 */
+	time->xptm_Sec = (XPINT32) (t / 1000000);
+	time->xptm_USec = (XPINT32) (t % 1000000);
+}
 
 #endif
 
@@ -584,6 +650,8 @@ static void xp_unlockfastmutex(struct XPBase *xpbase,
 	XPT_MUTEX_UNLOCK((XPMUTEX *) fastmutex);
 }
 
+#if 0
+/* locks (complex mutexes with r/w and r/o locking) not fully tested yet */
 
 static struct XPLock *xp_createlock(struct XPBase *xpbase)
 {
@@ -688,7 +756,8 @@ static void xp_unlock(struct XPBase *xpbase, struct XPLock *lock)
 			}
 			else
 			{
-				struct XPNode *next, *node = (struct XPNode *) lock->xplk_Waiters.xpmq_Head;
+				struct XPNode *next, *node = 
+					(struct XPNode *) lock->xplk_Waiters.xpmq_Head;
 				lock->xplk_Owner = NULL;
 				for (; (next = node->xpln_Succ); node = next)
 				{
@@ -707,7 +776,7 @@ static void xp_unlock(struct XPBase *xpbase, struct XPLock *lock)
 	}
 	XPT_MUTEX_UNLOCK(&lock->xplk_Mutex);
 }
-
+#endif
 
 static XPTHREADENTRY xpi_threadentry(struct XPThread *xpt)
 {
@@ -872,6 +941,8 @@ EXPORT struct XPBase *xpthread_create(void *args)
 					xpbase->createthread = xp_createthread;
 					xpbase->destroythread = xp_destroythread;
 					xpbase->findthread = xp_findthread;
+					xpbase->renamethread = xp_renamethread;
+					xpbase->getname = xp_getname;
 					xpbase->getdata = xp_getdata;
 					xpbase->setdata = xp_setdata;
 					xpbase->signal = xp_signal;
@@ -887,8 +958,6 @@ EXPORT struct XPBase *xpthread_create(void *args)
 					xpbase->subtime = xp_subtime;
 					xpbase->addtime = xp_addtime;
 					xpbase->cmptime = xp_cmptime;
-					xpbase->renamethread = xp_renamethread;
-					xpbase->getname = xp_getname;
 					xpbase->refthread = xp_refthread;
 					xpbase->unrefthread = xp_unrefthread;
 					xpbase->createfastmutex = xp_createfastmutex;
@@ -896,12 +965,13 @@ EXPORT struct XPBase *xpthread_create(void *args)
 					xpbase->lockfastmutex = xp_lockfastmutex;
 					xpbase->trylockfastmutex = xp_trylockfastmutex;
 					xpbase->unlockfastmutex = xp_unlockfastmutex;
+#if 0
 					xpbase->createlock = xp_createlock;
 					xpbase->destroylock = xp_destroylock;
 					xpbase->lock = xp_lock;
 					xpbase->lockshared = xp_lockshared;
 					xpbase->unlock = xp_unlock;
-					
+#endif
 					return xpbase;
 				}
 				XPT_MUTEX_DESTROY(&xpi->xpi_BaseLock);

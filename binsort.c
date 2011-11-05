@@ -1,29 +1,26 @@
-/*****************************************************************************/
 /*
 **	binsort - sort files by binary similarity
 **
-**	Written by Timm S. Mueller <tmueller@neoscientists.org>
+**	Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
 **	Licensed under the 3-clause BSD license, see COPYRIGHT
 **
 **	Scans the contents of a directory, sorts the files by binary
-**	similarity, generates a filelist and prints the list to stdout.
-**	A possible application is to pass the list to an archiving tool,
-**	e.g.:
+**	similarity, generates a filelist and prints the list to stdout. A
+**	A possible application is to pass the list to an archiving tool, e.g.:
 **
 **	$ binsort <dir> | tar -T- --no-recursion -czf out.tar.gz
 **
-**	This can improve compression rates considerably, although sorting
-**	is in no way optimized for a particular compression algorithm.
+**	This can improve compression rates considerably, although sorting is
+**	in no way optimized for a particular compression algorithm.
 **
 **	This is a research project combining threshold accepting,
 **	shingleprinting, and excessive multithreading.
 **
-**	This program uses simhash by Bart Massey (in modified form), and
-**	Tiny Mersenne Twister by Mutsuo Saito and Makoto Matsumoto. See
-**	COPYRIGHT for the respective copyrights and licensing terms.
+**	This program uses simhash by Bart Massey (in modified form), and Tiny
+**	Mersenne Twister by Mutsuo Saito and Makoto Matsumoto. See COPYRIGHT
+**	for the respective copyrights and licensing terms.
 */
 
-#define _POSIX_SOURCE
 
 #include <assert.h>
 #include <math.h>
@@ -38,14 +35,15 @@
 #include "simhash.h"
 #include "tinymt32.h"
 
-/*****************************************************************************/
 
 #define PROG_NAME "binsort"
 #define DEFAULT_QUALITY 20
 #define DEFAULT_NUMTHREADS 4
 
+
 typedef int32_t num_t;
 typedef double dist_t;
+
 
 typedef enum 
 {
@@ -147,6 +145,21 @@ struct Distances
 	num_t dst_Num;
 };
 
+struct RangeNode 
+{
+	struct Node rn_Node;
+	uint32_t rn_First, rn_Last;
+};
+
+struct Arguments
+{
+	const char *arg_Directory;
+	int arg_Quality;
+	int arg_NumThreads;
+	int arg_Quiet;
+	int arg_NoPrintDirs;
+};
+
 struct BinSort
 {
 	/* Pointer to arguments */
@@ -179,26 +192,12 @@ struct BinSort
 	dist_t b_CurrentDistance;
 };
 
-struct RangeNode 
-{
-	struct Node rn_Node;
-	uint32_t rn_First, rn_Last;
-};
-
-struct Arguments
-{
-	const char *arg_Directory;
-	int arg_Quality;
-	int arg_NumThreads;
-	int arg_Quiet;
-	int arg_NoPrintDirs;
-};
 
 #define XPT_SIG_UPDATE	0x00010000
 
 static void binsort_freedir(struct BinSort *B);
 
-/*****************************************************************************/
+
 /*
 **	InitList(list)
 **	Prepare list header
@@ -211,7 +210,6 @@ static void InitList(struct List *list)
 	list->lh_Head = (struct Node *) &list->lh_Tail;
 }
 
-/*****************************************************************************/
 /*
 **	AddTail(list, node)
 **	Add a node at the tail of a list
@@ -226,7 +224,6 @@ static void AddTail(struct List *list, struct Node *node)
 	temp->ln_Succ = node;
 }
 
-/*****************************************************************************/
 /*
 **	node = RemTail(list)
 **	Unlink and return a list's last node
@@ -244,7 +241,6 @@ static struct Node *RemTail(struct List *list)
 	return NULL;
 }
 
-/*****************************************************************************/
 /*
 **	Remove(node)
 **	Unlink node from a list
@@ -257,7 +253,7 @@ static void Remove(struct Node *node)
 	temp->ln_Pred = node->ln_Pred;
 }
 
-/*****************************************************************************/
+
 /*
 **	err = dirlist_scan(dirlist, dirname)
 **	Scan directory recursively
@@ -274,6 +270,7 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 		return ERR_DIR_OPEN;
 	if (pathlen > 0 && dirname[pathlen - 1] == '/')
 		pathlen--;
+	/*while ((dp = readdir(dir)))*/
 	while ((res = readdir_r(dir, &dirent, &dp)) == 0 && dp)
 	{
 		struct DirEntry *direntry;
@@ -333,7 +330,6 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 	return err;
 }
 
-/*****************************************************************************/
 /*
 **	err = binsort_genhashes(binsort)
 **	Generate hashes for all files
@@ -384,7 +380,6 @@ static error_t binsort_genhashes(struct BinSort *B)
 	return ERR_SUCCESS;
 }
 
-/*****************************************************************************/
 /*
 **	err = binsort_gendistances(binsort)
 **	Calculate distance array
@@ -452,7 +447,10 @@ error_t binsort_gendistances(struct BinSort *B)
 	return ERR_SUCCESS;
 }
 
-/*****************************************************************************/
+
+/*
+**	optimization helpers
+*/
 
 static int getdeltaindex(int max, int idx, int d)
 {
@@ -497,7 +495,10 @@ static dist_t getdelta(struct DirEntry **order, int num,
 		+ getdistd(order, num, distances, i1, i0, -1);
 }
 
-/*****************************************************************************/
+
+/*
+**	generate order - main function of optimization
+*/
 
 static error_t binsort_genorder(struct BinSort *B)
 {
@@ -532,7 +533,7 @@ static error_t binsort_genorder(struct BinSort *B)
 		}
 	}
 
-	/* distributed optimization: */
+	/* distribute optimization to workers: */
 	d = getdist(order, num, distances);
 	B->b_CurrentDistance = d;
 	
@@ -544,6 +545,7 @@ static error_t binsort_genorder(struct BinSort *B)
 		msgs[i].om_Message.msg_Data = &msgs[i];
 		msgs[i].om_NumEntries = num;
 		msgs[i].om_Order = order;
+		memset(&msgs[i].om_Random, 0x5a, sizeof msgs[i].om_Random);
 		tinymt32_init(&msgs[i].om_Random, 4567 + i);
 		msgs[i].om_Distances = distances;
 		msgs[i].om_InitialDistance = d * 5;
@@ -573,7 +575,7 @@ static error_t binsort_genorder(struct BinSort *B)
 	return ERR_SUCCESS;
 }
 
-/*****************************************************************************/
+
 /*
 **	optimization worker
 */
@@ -704,7 +706,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 	}
 }
 
-/*****************************************************************************/
+
 /*
 **	simhash worker
 */
@@ -742,9 +744,9 @@ static void binsort_worker_hash(struct Message *msg)
 	direntry->den_Error = err;
 }
 
-/*****************************************************************************/
+
 /*
-**	simhash comparison worker
+**	delta calculation worker
 */
 
 static void binsort_worker_calcdist(struct XPBase *xpbase, struct BinSort *B,
@@ -785,7 +787,7 @@ static void binsort_worker_calcdist(struct XPBase *xpbase, struct BinSort *B,
 	}
 }
 
-/*****************************************************************************/
+
 /*
 **	worker thread entry
 */
@@ -828,7 +830,7 @@ static void binsort_worker(struct XPBase *xpbase)
 	} while (!(sig & XPT_SIG_ABORT));
 }
 
-/*****************************************************************************/
+
 /*
 **	init, free
 */
@@ -934,7 +936,7 @@ static void binsort_free(struct BinSort *B)
 		xpthread_destroy(B->b_XPBase);
 }
 
-/*****************************************************************************/
+
 /*
 **	err = binsort_run(binsort, dirname)
 **	binsort main procedure
@@ -1005,7 +1007,7 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 	return err;
 }
 
-/*****************************************************************************/
+
 /*
 **	main
 */

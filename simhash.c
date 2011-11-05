@@ -71,7 +71,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
-#include <arpa/inet.h>
+/*#include <arpa/inet.h>*/
 #include "simhash.h"
 
 struct simhash_global
@@ -491,8 +491,7 @@ static int crc_insert(struct simhash_global *sh, uint32_t crc)
 	if (sh->nheap == sh->nfeature)
 	{
 		uint32_t m = heap_extract_max(sh);
-		int res = hash_delete(sh, m);
-		assert(res);
+		hash_delete(sh, m);
 	}
 	if (!hash_insert(sh, crc))
 		return 0;
@@ -640,7 +639,13 @@ struct simhash *simhash_file(FILE *f)
 	return hi;
 }
 
-#if 0
+const uint8_t *simhash_get(struct simhash *hi, size_t *len)
+{
+	*len = hi->nfeature * 4;
+	return (const uint8_t *) hi->feature;
+}
+
+#if defined(SIMHASH_UNNEEDED)
 int simhash_write(struct simhash *hi, FILE *f)
 {
 	int16_t s = htons(FILE_VERSION);	/* file/CRC version */
@@ -656,13 +661,6 @@ int simhash_write(struct simhash *hi, FILE *f)
 		}
 	}
 	return success;
-}
-#endif
-
-const uint8_t *simhash_get(struct simhash *hi, size_t *len)
-{
-	*len = hi->nfeature * 4;
-	return (const uint8_t *) hi->feature;
 }
 
 /* fills features with the features from f, and returns a
@@ -720,6 +718,7 @@ struct simhash *simhash_read(FILE *f)
 	} while (0);
 	return simhash_free(h);
 }
+#endif /* defined(SIMHASH_UNNEEDED) */
 
 int simhash_compare(struct simhash *h1, struct simhash *h2, double *val)
 {
