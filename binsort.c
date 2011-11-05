@@ -551,7 +551,7 @@ static error_t binsort_genorder(struct BinSort *B)
 		memset(&msgs[i].om_Random, 0x5a, sizeof msgs[i].om_Random);
 		tinymt32_init(&msgs[i].om_Random, 4567 + i);
 		msgs[i].om_Distances = distances;
-		msgs[i].om_InitialDistance = d * 5;
+		msgs[i].om_InitialDistance = d * 7;
 		msgs[i].om_NumIterations = pow(d, 1.1) * quality / numworkers;
 		(*xpbase->putmsg)(xpbase, port, rport, 
 			&msgs[i].om_Message.msg_XPMessage);
@@ -597,7 +597,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 	num_t i0, i1, n, i;
 	double dunk = 
 		(double) msg->om_InitialDistance * 1.25 / msg->om_NumIterations;
-	
+		
 	for (i = 0; i < msg->om_NumIterations; ++i)
 	{
 		double thresh = (double) msg->om_InitialDistance / i - dunk;
@@ -975,7 +975,7 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 		}
 		
 		if (!quiet)
-			fprintf(stderr, "optimizing ...      \n");
+			fprintf(stderr, "optimizing ...        \n");
 		
 		err = binsort_genorder(B);
 		binsort_freedistances(B);
