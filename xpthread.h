@@ -3,7 +3,7 @@
 
 /*
 **	xpthread 2.0 - cross-platform multithreading library
-**  Copyright (c) 2003-2011 Timm S. Mueller, all rights reserved
+**	Copyright (c) 2003-2011 Timm S. Mueller, all rights reserved
 **	Licensed under the 3-clause BSD license, see COPYRIGHT
 **
 **	xpbase = xpthread_create(args)

@@ -1,7 +1,7 @@
 
 Binsort - sort files by binary similarity
 
-Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
+Copyright (c) 2011 by Timm S. Mueller
 Licensed under the 3-clause BSD license, see COPYRIGHT
 
 Scans the contents of a directory, groups the files by binary
@@ -62,7 +62,7 @@ sections of code, and this task is parallalizable to a large extent as
 well.
 
 Contact:
-Timm S. Mueller <tmueller@neoscientists.org>
+Timm S. Mueller <tmueller@schulze-mueller.de>
 
 Homepage:
 http://neoscientists.org/~tmueller/binsort/
