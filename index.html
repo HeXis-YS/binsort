@@ -11,7 +11,7 @@ Copyright (c) 2011 by Timm S. M&uuml;ller
 Licensed under the 3-clause BSD license, see <a href="COPYRIGHT">COPYRIGHT</a>
 
 Scans the contents of a directory, groups the files by binary
-similarity, generates a filelist and prints the list to stdout. A
+similarity, generates a filelist and prints the list to stdout. One
 possible application is to pass the list to an archiving tool, e.g.:
 
 $ binsort &lt;dir&gt; | tar -T- --no-recursion -czf out.tar.gz
@@ -20,10 +20,10 @@ This can improve compression rates considerably, although sorting is
 in no way optimized for a particular compression algorithm.
 
 This is a research project combining threshold accepting,
-shingleprinting, and excessive multithreading. It uses simhash by Bart
-Massey (in modified form), and Tiny Mersenne Twister by Mutsuo Saito
-and Makoto Matsumoto. See <a href="COPYRIGHT">COPYRIGHT</a> for the respective copyright
-holders' licensing terms.
+shingleprinting, and massive multithreading. It uses simhash by Bart
+Massey [1], and Tiny Mersenne Twister by Mutsuo Saito and Makoto
+Matsumoto [2]. See <a href="COPYRIGHT">COPYRIGHT</a> for the respective copyright holders'
+licensing terms.
 
 Usage: binsort [options] dir
 Options:
@@ -46,6 +46,12 @@ Memory consumption: Converges to the squared number of files, in
 bytes. Please consider this before sorting e.g. 100.000 files. On a
 32bit architecture, this cannot work anyway.
 
+Performance example:
+
+Binsorting the distribution of abiword 2.8.6 (44029103 bytes in 3391
+files) on a quadcore CPU takes approx. 16s, and produces a tar.gz
+approx. 14.3% smaller than without processing.
+
 Further notes:
 
 Binsort performs three time-consuming substeps: Hashing, distance
@@ -56,16 +62,11 @@ Hashing has linear time complexity, but may be time-consuming
 nevertheless. It is the only substep that may be I/O bound. Delta
 calculation and optimizing have quadratic time complexity. 
 
-The number of threads should roughly match the number of CPUs (or CPU
-cores), but a few more do not hurt, as they can help to improve the
-interleaving of I/O and hashing.
-
 Hashing and distances calculation are completely parallelizable, and
 do not suffer from increased overhead for synchronization. During
 optimization, on the other hand, threads compete for certain fields in
-the same data structure. Luckily, locking can be reduced to very short
-sections of code, and this task is parallalizable to a large extent as
-well.
+the same data structure. Luckily, locking can be reduced to short code
+sections, and this task is (to a large extent) parallalizable as well.
 
 Contact:
 Timm S. M&uuml;ller &lt;tmueller@schulze-mueller.de&gt;
@@ -78,6 +79,11 @@ Download:
 
 Source code repository:
 <a href="http://hg.neoscientists.org/binsort/">http://hg.neoscientists.org/binsort/</a>
+
+References and further reading:
+[1] http://svcs.cs.pdx.edu/gitweb/simhash.git
+[2] http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/TINYMT/index.html
+See also bibliography in simhash.c
 
 </pre>
 	</body>

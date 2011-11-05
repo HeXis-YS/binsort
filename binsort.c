@@ -1,11 +1,12 @@
+
 /*
 **	Binsort - sort files by binary similarity
 **
-**	Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
+**	Copyright (c) 2011 by Timm S. Mueller <tmueller@schulze-mueller.de>
 **	Licensed under the 3-clause BSD license, see COPYRIGHT
 **
 **	Scans the contents of a directory, groups the files by binary
-**	similarity, generates a filelist and prints the list to stdout. A
+**	similarity, generates a filelist and prints the list to stdout. One
 **	A possible application is to pass the list to an archiving tool, e.g.:
 **
 **	$ binsort <dir> | tar -T- --no-recursion -czf out.tar.gz
@@ -14,10 +15,15 @@
 **	in no way optimized for a particular compression algorithm.
 **
 **	This is a research project combining threshold accepting,
-**	shingleprinting, and excessive multithreading. It uses simhash by Bart
-**	Massey (in modified form), and Tiny Mersenne Twister by Mutsuo Saito
-**	and Makoto Matsumoto. See COPYRIGHT for the respective copyright
-**	holders' licensing terms.
+**	shingleprinting, and massive multithreading. It uses simhash by Bart
+**	Massey [1], and Tiny Mersenne Twister by Mutsuo Saito and Makoto
+**	Matsumoto [2]. See COPYRIGHT for the respective copyright holders'
+**	licensing terms.
+**
+**	References and further reading:
+**	[1] http://svcs.cs.pdx.edu/gitweb/simhash.git
+**	[2] http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/TINYMT/index.html
+**	See also bibliography in simhash.c
 */
 
 
@@ -214,7 +220,7 @@ static void InitList(struct List *list)
 **	Add a node at the tail of a list
 */
 
-static void AddTail(struct List *list, struct Node *node)
+static __inline void AddTail(struct List *list, struct Node *node)
 {
 	struct Node *temp = list->lh_TailPred;
 	list->lh_TailPred = node;
@@ -245,7 +251,7 @@ static struct Node *RemTail(struct List *list)
 **	Unlink node from a list
 */
 
-static void Remove(struct Node *node)
+static __inline void Remove(struct Node *node)
 {
 	struct Node *temp = node->ln_Succ;
 	node->ln_Pred->ln_Succ = temp;
@@ -455,7 +461,7 @@ error_t binsort_gendistances(struct BinSort *B)
 **	optimization helpers
 */
 
-static int getdeltaindex(int max, int idx, int d)
+static __inline int getdeltaindex(int max, int idx, int d)
 {
 	idx += d;
 	if (idx < 0)
@@ -463,12 +469,10 @@ static int getdeltaindex(int max, int idx, int d)
 	return idx % max;
 }
 
-static int getdistd(struct DirEntry **order, int num,
+static __inline int getdistd(struct DirEntry **order, int num,
 	struct Distances *distances, int i0, int i1, int delta)
 {
 	int a, b;
-	assert(i0 >= 0 && i0 < num);
-	assert(i1 >= 0 && i1 < num);
 	a = order[i0]->den_Index;
 	if (a < 0)
 		return 0;
@@ -488,7 +492,7 @@ static dist_t getdist(struct DirEntry **order, int num,
 	return d;
 }
 
-static dist_t getdelta(struct DirEntry **order, int num, 
+static __inline dist_t getdelta(struct DirEntry **order, int num, 
 	struct Distances *distances, int i0, int i1)
 {
 	return 
@@ -616,7 +620,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 			n = num - i0 + i1 + 1;
 			if (n > i0 - i1 - 1)
 			{
-				int t = i1 + 1;
+				num_t t = i1 + 1;
 				i1 = i0 - 1;
 				i0 = t;
 				n = i1 - i0 + 1;
@@ -626,7 +630,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 		{
 			if (num - i1 + i0 - 1 < i1 - i0 + 1)
 			{
-				int t = getdeltaindex(num, i0, -1);
+				num_t t = getdeltaindex(num, i0, -1);
 				i0 = (i1 + 1) % num;
 				i1 = t;
 				if (i0 > i1)
@@ -678,6 +682,8 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 			struct DirEntry *t;
 			num_t i;
 
+			B->b_CurrentDistance += delta;
+
 			rangelock.rn_First = i0;
 			rangelock.rn_Last = i1;
 			AddTail(rangelist, &rangelock.rn_Node);
@@ -688,21 +694,23 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 			i0 = (i0 + 1) % num;
 			i1 = getdeltaindex(num, i1, -1);
 
-			(*xpbase->unlockfastmutex)(xpbase, lock);
-
-			for (i = 1; i < n / 2; ++i)
+			if (n > 3)
 			{
-				t = order[i0];
-				order[i0] = order[i1];
-				order[i1] = t;
-				i0 = (i0 + 1) % num;
-				i1 = getdeltaindex(num, i1, -1);
+				(*xpbase->unlockfastmutex)(xpbase, lock);
+
+				for (i = 1; i < n / 2; ++i)
+				{
+					t = order[i0];
+					order[i0] = order[i1];
+					order[i1] = t;
+					i0 = (i0 + 1) % num;
+					i1 = getdeltaindex(num, i1, -1);
+				}
+
+				(*xpbase->lockfastmutex)(xpbase, lock);
 			}
 
-			(*xpbase->lockfastmutex)(xpbase, lock);
-
 			Remove(&rangelock.rn_Node);
-			B->b_CurrentDistance += delta;
 		}
 		
 		(*xpbase->unlockfastmutex)(xpbase, lock);

@@ -25,5 +25,6 @@ $(binsort_exe): $(binsort_objs)
 clean:
 	-rm $(binsort_objs) $(binsort_exe)
 
+
 kdiff:
 	-(a=$$(mktemp -du) && hg clone $$PWD $$a && kdiff3 $$a $$PWD; rm -rf $$a)

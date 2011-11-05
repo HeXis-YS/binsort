@@ -632,7 +632,7 @@ static void xp_lockfastmutex(struct XPBase *xpbase,
 	struct XPFastMutex *fastmutex)
 {
 	int i;
-	for (i = 0; i < 2000; ++i)
+	for (i = 0; i < 4000; ++i)
 		if (XPT_MUTEX_TRYLOCK((XPMUTEX *) fastmutex) == 0)
 			return;
 	XPT_MUTEX_LOCK((XPMUTEX *) fastmutex);
