@@ -241,7 +241,7 @@ static int xpi_timedwait(struct XPBase *xpbase, XPEVENT *event,
 
 static void xp_gettime(struct XPBase *xpbase, struct XPTime *time)
 {
-	LARGE_INTEGER filet;
+	ULARGE_INTEGER filet;
 	LONGLONG t;
 	GetSystemTimeAsFileTime((LPFILETIME) &filet);
 	t = filet.QuadPart / 10; /* micros */

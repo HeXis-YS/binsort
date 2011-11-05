@@ -1,9 +1,9 @@
 
-DEFS = -DXPT_PTHREADS -DNDEBUG
+DEFS = -DXPT_PTHREADS -DNDEBUG # use XPT_WINDOWS for native Windows threads
 WARN = -Wall -Wextra -Wno-unused-parameter
-OPT = -O3
+OPT = -O2
 CFLAGS = $(DEFS) $(WARN) $(OPT)
-CC = gcc # -g
+CC = gcc
 
 
 all: binsort

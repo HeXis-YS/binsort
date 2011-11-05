@@ -1,5 +1,5 @@
 /*
-**	binsort - sort files by binary similarity
+**	Binsort - sort files by binary similarity
 **
 **	Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
 **	Licensed under the 3-clause BSD license, see COPYRIGHT
@@ -36,13 +36,12 @@
 
 
 #define PROG_NAME "binsort"
-#define PATH_DELIMITER '/'
-#define DEFAULT_QUALITY 20
-#define DEFAULT_NUMTHREADS 4
+#define BINSORT_DEFAULT_QUALITY 20
+#define BINSORT_DEFAULT_NUMTHREADS 4
 
 
 typedef int32_t num_t;
-typedef double dist_t;
+typedef long long dist_t;
 
 
 typedef enum 
@@ -262,15 +261,14 @@ static void Remove(struct Node *node)
 static error_t dirlist_scan(struct DirList *list, const char *dirname)
 {
 	struct Node *next, *node = list->dls_Head.lh_TailPred;
-	int num = 0, err = ERR_SUCCESS, res;
-	struct dirent dirent, *dp;
+	int num = 0, err = ERR_SUCCESS, res = 0;
+	struct dirent *dp;
 	size_t pathlen = strlen(dirname);
 	DIR *dir = opendir(dirname);
 	if (dir == NULL)
 		return ERR_DIR_OPEN;
-	if (pathlen > 0 && dirname[pathlen - 1] == PATH_DELIMITER)
+	if (pathlen > 0 && dirname[pathlen - 1] == '/')
 		pathlen--;
- 	/*while ((res = readdir_r(dir, &dirent, &dp)) == 0 && dp)*/
 	while ((dp = readdir(dir)))
 	{
 		struct DirEntry *direntry;
@@ -288,7 +286,7 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 			direntry->den_Message.msg_Data = direntry; /* backptr */
 			direntry->den_Index = -1;
 			strcpy(p, dirname);
-			p[pathlen] = PATH_DELIMITER;
+			p[pathlen] = '/';
 			strcpy(p + pathlen + 1, name);
 			if (stat(p, &statbuf) == 0)
 			{
@@ -391,15 +389,20 @@ error_t binsort_gendistances(struct BinSort *B)
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK portsig = B->b_ReplyPortSignal;
 	int numworkers = B->b_Arguments->arg_NumThreads;
+	struct HashList *hashes = &B->b_Hashes;
+	num_t num = hashes->hls_Num;
 	struct HashMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
 		return ERR_OUT_OF_MEMORY;
+	
+	/* avoid overproportional number of workers to distances: */
+	if (num / 10 < numworkers)
+		numworkers = num / 10;
+	
 	do
 	{
 		int y, i, i0;
-		struct HashList *hashes = &B->b_Hashes;
 		struct Node *ynext, *ynode = hashes->hls_Head.lh_Head;
-		size_t num = hashes->hls_Num;
 		B->b_DistancesLeft = (num - 1) * (num - 1) / 2;
 		double a0 = num * num / numworkers;
 		struct Distances *d = malloc(sizeof *d + num * num);
@@ -559,11 +562,11 @@ static error_t binsort_genorder(struct BinSort *B)
 		while ((*xpbase->getmsg)(xpbase, rport))
 			--numworkers;
 		if (!B->b_Arguments->arg_Quiet && (sig & XPT_SIG_UPDATE))
-			fprintf(stderr, "d=%.0f         \r", B->b_CurrentDistance);
+			fprintf(stderr, "d=%lld         \r", B->b_CurrentDistance);
 	} while (numworkers > 0);
-	
+
 	assert(B->b_CurrentDistance == getdist(order, num, distances));
-	
+
 	if (B->b_Arguments->arg_NoPrintDirs)
 		binsort_freedir(B);
 	
@@ -592,14 +595,14 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 	dist_t delta;
 	struct Node *node, *next;
 	num_t i0, i1, n, i;
-	dist_t dunk = 
-		(dist_t) msg->om_InitialDistance / (msg->om_NumIterations * 0.8);
+	double dunk = 
+		(double) msg->om_InitialDistance * 1.25 / msg->om_NumIterations;
 	
 	for (i = 0; i < msg->om_NumIterations; ++i)
 	{
-		dist_t thresh = (dist_t) msg->om_InitialDistance / i - dunk;
+		double thresh = (double) msg->om_InitialDistance / i - dunk;
 
-		if ((i & 32767) == 0)
+		if ((i & 65535) == 0)
 			(*xpbase->signal)(xpbase, B->b_Self, XPT_SIG_UPDATE);
 
 		again:
@@ -992,7 +995,7 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 		{
 			struct Node *next, *node;
 			if (!quiet)
-				fprintf(stderr, "d=%.0f done.              \n", 
+				fprintf(stderr, "d=%lld done.              \n", 
 					B->b_CurrentDistance);
 			node = B->b_DirList.dls_Head.lh_Head;
 			for (; (next = node->ln_Succ); node = next)
@@ -1070,7 +1073,7 @@ int main(int argc, char **argv)
 	int res = EXIT_FAILURE;
 	int help = 0;
 	struct Arguments args = 
-		{ NULL, DEFAULT_QUALITY, DEFAULT_NUMTHREADS, 0, 0 };
+		{ NULL, BINSORT_DEFAULT_QUALITY, BINSORT_DEFAULT_NUMTHREADS, 0, 0 };
 	arg_t argparse[] = 
 	{ 
 		{ NULL, NULL, &args.arg_Directory, 's' },
@@ -1117,11 +1120,11 @@ int main(int argc, char **argv)
 		printf("Usage: %s [options] dir\n", PROG_NAME);
 		printf("Options:\n");
 		printf("  -o          Optimization level [1...1000], default: %d\n",
-			DEFAULT_QUALITY);
+			BINSORT_DEFAULT_QUALITY);
 		printf("  -t          Number of threads [1...128], default: %d\n",
-			DEFAULT_NUMTHREADS);
+			BINSORT_DEFAULT_NUMTHREADS);
 		printf("  -q          Quiet operation, no progress indicators\n");
-		printf("  -d          Do not include directories in the output list\n");
+		printf("  -d          Do not include directories in output list\n");
 		printf("  -h  --help  This help\n");
 		printf("\nNote: Results are not stable unless you specify -t 1.\n");
 	}
