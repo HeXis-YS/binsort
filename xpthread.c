@@ -157,7 +157,7 @@ struct XPLock
 	struct XPQueue xplk_Waiters;
 	XPMUTEX xplk_Mutex;
 	struct XPThread *xplk_Owner;
-	int16_t xplk_Count;
+	XPUINT32 xplk_Count;
 };
 
 struct XPLockWait

@@ -10,7 +10,7 @@ all: binsort
 
 
 binsort_exe = binsort
-binsort_objs = simhash.o xpthread.o binsort.o tinymt32.o
+binsort_objs = simhash.o xpthread.o tinymt32.o binsort.o
 
 simhash.o: simhash.c simhash.h
 

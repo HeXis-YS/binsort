@@ -14,11 +14,10 @@
 **	in no way optimized for a particular compression algorithm.
 **
 **	This is a research project combining threshold accepting,
-**	shingleprinting, and excessive multithreading.
-**
-**	This program uses simhash by Bart Massey (in modified form), and Tiny
-**	Mersenne Twister by Mutsuo Saito and Makoto Matsumoto. See COPYRIGHT
-**	for the respective copyrights and licensing terms.
+**	shingleprinting, and excessive multithreading. It uses simhash by Bart
+**	Massey (in modified form), and Tiny Mersenne Twister by Mutsuo Saito
+**	and Makoto Matsumoto. See COPYRIGHT for the respective copyrights and
+**	licensing terms.
 */
 
 
@@ -37,6 +36,7 @@
 
 
 #define PROG_NAME "binsort"
+#define PATH_DELIMITER '/'
 #define DEFAULT_QUALITY 20
 #define DEFAULT_NUMTHREADS 4
 
@@ -268,10 +268,10 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 	DIR *dir = opendir(dirname);
 	if (dir == NULL)
 		return ERR_DIR_OPEN;
-	if (pathlen > 0 && dirname[pathlen - 1] == '/')
+	if (pathlen > 0 && dirname[pathlen - 1] == PATH_DELIMITER)
 		pathlen--;
-	/*while ((dp = readdir(dir)))*/
-	while ((res = readdir_r(dir, &dirent, &dp)) == 0 && dp)
+ 	/*while ((res = readdir_r(dir, &dirent, &dp)) == 0 && dp)*/
+	while ((dp = readdir(dir)))
 	{
 		struct DirEntry *direntry;
 		size_t nlen;
@@ -288,7 +288,7 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 			direntry->den_Message.msg_Data = direntry; /* backptr */
 			direntry->den_Index = -1;
 			strcpy(p, dirname);
-			p[pathlen] = '/';
+			p[pathlen] = PATH_DELIMITER;
 			strcpy(p + pathlen + 1, name);
 			if (stat(p, &statbuf) == 0)
 			{

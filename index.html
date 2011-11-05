@@ -1,14 +1,20 @@
+<html>
+	<title>
+		Binsort - sort files by binary similarity
+	</title>
+	<body>
+<pre>
 
 binsort - sort files by binary similarity
 
-Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
-Licensed under the 3-clause BSD license, see COPYRIGHT
+Copyright (c) 2011 by Timm S. M&uuml;ller &lt;tmueller@neoscientists.org&gt;
+Licensed under the 3-clause BSD license, see <a href="COPYRIGHT">COPYRIGHT</a>
 
 Scans the contents of a directory, sorts the files by binary
 similarity, generates a filelist and prints the list to stdout. A
 possible application is to pass the list to an archiving tool, e.g.:
 
-$ binsort <dir> | tar -T- --no-recursion -czf out.tar.gz
+$ binsort &lt;dir&gt; | tar -T- --no-recursion -czf out.tar.gz
 
 This can improve compression rates considerably, although sorting is
 in no way optimized for a particular compression algorithm.
@@ -16,7 +22,7 @@ in no way optimized for a particular compression algorithm.
 This is a research project combining threshold accepting,
 shingleprinting, and excessive multithreading. It uses simhash by Bart
 Massey (in modified form), and Tiny Mersenne Twister by Mutsuo Saito
-and Makoto Matsumoto. See COPYRIGHT for the respective copyrights and
+and Makoto Matsumoto. See <a href="COPYRIGHT">COPYRIGHT</a> for the respective copyrights and
 licensing terms.
 
 Usage: binsort [options] dir
@@ -60,3 +66,16 @@ optimization, on the other hand, threads must compete for certain
 fields in the same data structure. Luckily, locking can be reduced to
 very short sections of code, and this task is parallalizable to a
 large extent as well.
+
+Contact:
+Timm S. M&uuml;ller &lt;tmueller@neoscientists.org&gt;
+
+Homepage:
+<a href="http://neoscientists.org/~tmueller/binsort/">http://neoscientists.org/~tmueller/binsort/</a>
+
+Download:
+<a href="http://neoscientists.org/~tmueller/binsort/download/">http://neoscientists.org/~tmueller/binsort/download/</a>
+
+</pre>
+	</body>
+</html>
