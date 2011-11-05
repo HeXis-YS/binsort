@@ -4,7 +4,7 @@ Binsort - sort files by binary similarity
 Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
 Licensed under the 3-clause BSD license, see COPYRIGHT
 
-Scans the contents of a directory, sorts the files by binary
+Scans the contents of a directory, groups the files by binary
 similarity, generates a filelist and prints the list to stdout. A
 possible application is to pass the list to an archiving tool, e.g.:
 
@@ -16,8 +16,8 @@ in no way optimized for a particular compression algorithm.
 This is a research project combining threshold accepting,
 shingleprinting, and excessive multithreading. It uses simhash by Bart
 Massey (in modified form), and Tiny Mersenne Twister by Mutsuo Saito
-and Makoto Matsumoto. See COPYRIGHT for the respective copyrights and
-licensing terms.
+and Makoto Matsumoto. See COPYRIGHT for the respective copyright
+holders' licensing terms.
 
 Usage: binsort [options] dir
 Options:
@@ -42,7 +42,7 @@ bytes. Please consider this before sorting e.g. 100.000 files. On a
 
 Further notes:
 
-Binsort performs three time-consuming substeps: Hashing, delta
+Binsort performs three time-consuming substeps: Hashing, distance
 calculation, and optimizing. All three have been parallelized and can
 be performed by any number of threads simultaneously. 
 
@@ -54,9 +54,21 @@ The number of threads should roughly match the number of CPUs (or CPU
 cores), but a few more do not hurt, as they can help to improve the
 interleaving of I/O and hashing.
 
-Hashing and delta calculation are completely parallelizable, and do
-not suffer from increased overhead for synchronization. During
-optimization, on the other hand, threads must compete for certain
-fields in the same data structure. Luckily, locking can be reduced to
-very short sections of code, and this task is parallalizable to a
-large extent as well.
+Hashing and distances calculation are completely parallelizable, and
+do not suffer from increased overhead for synchronization. During
+optimization, on the other hand, threads compete for certain fields in
+the same data structure. Luckily, locking can be reduced to very short
+sections of code, and this task is parallalizable to a large extent as
+well.
+
+Contact:
+Timm S. Mueller <tmueller@neoscientists.org>
+
+Homepage:
+http://neoscientists.org/~tmueller/binsort/
+
+Download:
+http://neoscientists.org/~tmueller/binsort/download/
+
+Source code repository:
+http://hg.neoscientists.org/binsort

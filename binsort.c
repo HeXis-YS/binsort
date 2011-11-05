@@ -4,7 +4,7 @@
 **	Copyright (c) 2011 by Timm S. Mueller <tmueller@neoscientists.org>
 **	Licensed under the 3-clause BSD license, see COPYRIGHT
 **
-**	Scans the contents of a directory, sorts the files by binary
+**	Scans the contents of a directory, groups the files by binary
 **	similarity, generates a filelist and prints the list to stdout. A
 **	A possible application is to pass the list to an archiving tool, e.g.:
 **
@@ -16,8 +16,8 @@
 **	This is a research project combining threshold accepting,
 **	shingleprinting, and excessive multithreading. It uses simhash by Bart
 **	Massey (in modified form), and Tiny Mersenne Twister by Mutsuo Saito
-**	and Makoto Matsumoto. See COPYRIGHT for the respective copyrights and
-**	licensing terms.
+**	and Makoto Matsumoto. See COPYRIGHT for the respective copyright
+**	holders' licensing terms.
 */
 
 
@@ -185,7 +185,7 @@ struct BinSort
 	struct XPFastMutex *b_Lock;
 	/* Current order of file entries */
 	struct DirEntry **b_Order;
-	/* List of ranges currently being swapped by workers */
+	/* List of ranges currently being processed by workers */
 	struct List b_RangeList;
 	/* Sum of current order's file distances */
 	dist_t b_CurrentDistance;
@@ -395,7 +395,7 @@ error_t binsort_gendistances(struct BinSort *B)
 	if (!msgs)
 		return ERR_OUT_OF_MEMORY;
 	
-	/* avoid overproportional number of workers to distances: */
+	/* avoid overproportional number of workers per distances: */
 	if (num / 10 < numworkers)
 		numworkers = num / 10;
 	
@@ -442,7 +442,7 @@ error_t binsort_gendistances(struct BinSort *B)
 			--numworkers;
 		if (!B->b_Arguments->arg_Quiet && (sig & XPT_SIG_UPDATE))
 		{
-			fprintf(stderr, "%d deltas left           \r", 
+			fprintf(stderr, "%d distances left           \r", 
 				B->b_DistancesLeft);
 		}
 	} while (numworkers > 0);
@@ -749,7 +749,7 @@ static void binsort_worker_hash(struct Message *msg)
 
 
 /*
-**	delta calculation worker
+**	distance calculation worker
 */
 
 static void binsort_worker_calcdist(struct XPBase *xpbase, struct BinSort *B,
@@ -811,22 +811,16 @@ static void binsort_worker(struct XPBase *xpbase)
 			switch (msg->msg_Type)
 			{
 				case MSG_HASH:
-				{
 					binsort_worker_hash(msg);
 					break;
-				}
 				case MSG_CALCDIST:
-				{
 					binsort_worker_calcdist(xpbase, B,
 						(struct HashMessage *) msg);
 					break;
-				}
 				case MSG_OPTIMIZE:
-				{
 					binsort_worker_optimize(xpbase, B,
 						(struct OptMessage *) msg);
 					break;
-				}
 			}
 			(*xpbase->replymsg)(xpbase, xpmsg);
 		}
@@ -970,7 +964,7 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 		}
 		
 		if (!quiet)
-			fprintf(stderr, "calculating %d deltas ...\n",
+			fprintf(stderr, "calculating %d distances ...\n",
 				B->b_Hashes.hls_Num * B->b_Hashes.hls_Num / 2);
 		
 		err = binsort_gendistances(B);
