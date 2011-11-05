@@ -21,8 +21,8 @@ licensing terms.
 
 Usage: binsort [options] dir
 Options:
-  -o          Optimization level [1...1000], default: 20
-  -t          Number of threads [1...128], default: 4
+  -o          Optimization level [1...1000], default: 15
+  -t          Number of threads [1...128], default: 3
   -q          Quiet operation, no progress indicators
   -d          Do not include directories in the output list
   -h  --help  This help
@@ -43,7 +43,7 @@ bytes. Please consider this before sorting e.g. 100.000 files. On a
 Performance example:
 
 Binsorting the distribution of abiword 2.8.6 (44029103 bytes in 3391
-files) on a quadcore CPU takes approx. 16s, and produces a tar.gz
+files) on a quadcore CPU takes approx. 14s, and produces a tar.gz
 approx. 14.3% smaller than without processing.
 
 Further notes:
@@ -60,7 +60,7 @@ Hashing and distances calculation are completely parallelizable, and
 do not suffer from increased overhead for synchronization. During
 optimization, on the other hand, threads compete for certain fields in
 the same data structure. Luckily, locking can be reduced to short code
-sections, and this task is (to a large extent) parallalizable as well.
+sections, and this task is (to some extent) parallalizable as well.
 
 Contact:
 Timm S. Mueller <tmueller@schulze-mueller.de>
@@ -75,6 +75,7 @@ Source code repository:
 http://hg.neoscientists.org/binsort
 
 References and further reading:
+
 [1] http://svcs.cs.pdx.edu/gitweb/simhash.git
 [2] http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/TINYMT/index.html
 See also bibliography in simhash.c

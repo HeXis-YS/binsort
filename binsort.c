@@ -7,7 +7,7 @@
 **
 **	Scans the contents of a directory, groups the files by binary
 **	similarity, generates a filelist and prints the list to stdout. One
-**	A possible application is to pass the list to an archiving tool, e.g.:
+**	possible application is to pass the list to an archiving tool, e.g.:
 **
 **	$ binsort <dir> | tar -T- --no-recursion -czf out.tar.gz
 **
@@ -21,11 +21,11 @@
 **	licensing terms.
 **
 **	References and further reading:
+**
 **	[1] http://svcs.cs.pdx.edu/gitweb/simhash.git
 **	[2] http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/TINYMT/index.html
 **	See also bibliography in simhash.c
 */
-
 
 #include <assert.h>
 #include <math.h>
@@ -40,15 +40,12 @@
 #include "simhash.h"
 #include "tinymt32.h"
 
-
 #define PROG_NAME "binsort"
-#define BINSORT_DEFAULT_QUALITY 20
-#define BINSORT_DEFAULT_NUMTHREADS 4
-
+#define BINSORT_DEFAULT_QUALITY 15
+#define BINSORT_DEFAULT_NUMTHREADS 3
 
 typedef int32_t num_t;
 typedef long long dist_t;
-
 
 typedef enum 
 {
@@ -196,7 +193,6 @@ struct BinSort
 	/* Sum of current order's file distances */
 	dist_t b_CurrentDistance;
 };
-
 
 #define XPT_SIG_UPDATE	0x00010000
 
@@ -456,31 +452,9 @@ error_t binsort_gendistances(struct BinSort *B)
 	return ERR_SUCCESS;
 }
 
-
 /*
-**	optimization helpers
+**	generate order - main function of optimization
 */
-
-static __inline int getdeltaindex(int max, int idx, int d)
-{
-	idx += d;
-	if (idx < 0)
-		return idx + max;
-	return idx % max;
-}
-
-static __inline int getdistd(struct DirEntry **order, int num,
-	struct Distances *distances, int i0, int i1, int delta)
-{
-	int a, b;
-	a = order[i0]->den_Index;
-	if (a < 0)
-		return 0;
-	b = order[getdeltaindex(num, i1, delta)]->den_Index;
-	if (b < 0)
-		return 0;
-	return distances->dst_Array[a * distances->dst_Num + b];
-}
 
 static dist_t getdist(struct DirEntry **order, int num, 
 	struct Distances *distances)
@@ -488,24 +462,14 @@ static dist_t getdist(struct DirEntry **order, int num,
 	dist_t d = 0;
 	int i0;
 	for (i0 = 0; i0 < num; ++i0)
-		d += getdistd(order, num, distances, i0, i0, 1);
+	{
+		num_t a = order[i0]->den_Index;
+		num_t b = order[(i0 + 1) % num]->den_Index;
+		if (a >= 0 && b >= 0)
+			d += distances->dst_Array[a * distances->dst_Num + b];
+	}
 	return d;
 }
-
-static __inline dist_t getdelta(struct DirEntry **order, int num, 
-	struct Distances *distances, int i0, int i1)
-{
-	return 
-		- getdistd(order, num, distances, i0, i0, -1)
-		- getdistd(order, num, distances, i1, i1, 1)
-		+ getdistd(order, num, distances, i0, i1, 1)
-		+ getdistd(order, num, distances, i1, i0, -1);
-}
-
-
-/*
-**	generate order - main function of optimization
-*/
 
 static error_t binsort_genorder(struct BinSort *B)
 {
@@ -599,12 +563,17 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 	dist_t delta;
 	struct Node *node, *next;
 	num_t i0, i1, n, i;
+	num_t i11, i00, a, b, c, d;
+	num_t arrnum = distances->dst_Num;
+	const uint8_t *array = distances->dst_Array;
+	
 	double dunk = 
 		(double) msg->om_InitialDistance * 1.25 / msg->om_NumIterations;
 		
 	for (i = 0; i < msg->om_NumIterations; ++i)
 	{
 		double thresh = (double) msg->om_InitialDistance / i - dunk;
+		if (thresh < 0) thresh = 0;
 
 		if ((i & 65535) == 0)
 			(*xpbase->signal)(xpbase, B->b_Self, XPT_SIG_UPDATE);
@@ -630,7 +599,8 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 		{
 			if (num - i1 + i0 - 1 < i1 - i0 + 1)
 			{
-				num_t t = getdeltaindex(num, i0, -1);
+				num_t t = i0;
+				if (--t < 0) t += num;
 				i0 = (i1 + 1) % num;
 				i1 = t;
 				if (i0 > i1)
@@ -644,6 +614,12 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 		else
 			goto again;
 
+		
+		delta = 0;
+		i11 = (i1 + 1) % num;
+		i00 = i0 - 1;
+		if (i00 < 0) i00 += num;
+		
 		(*xpbase->lockfastmutex)(xpbase, lock);
 		
 		node = rangelist->lh_Head;
@@ -675,8 +651,26 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 			goto again;
 		}
 		
-		delta = getdelta(order, num, distances, i0, i1);
-		if (delta <= (thresh < 0 ? 0 : thresh))
+		a = order[i0]->den_Index;
+		b = order[i1]->den_Index;
+		c = order[i00]->den_Index;
+		d = order[i11]->den_Index;
+		
+		if (a >= 0)
+		{
+			a *= arrnum;
+			if (c >= 0) delta -= array[a + c];
+			if (d >= 0) delta += array[a + d];
+		}
+
+		if (b >= 0)
+		{
+			b *= arrnum;
+			if (d >= 0) delta -= array[b + d];
+			if (c >= 0) delta += array[b + c];
+		}
+		
+		if (delta < thresh)
 		{
 			struct RangeNode rangelock;
 			struct DirEntry *t;
@@ -684,33 +678,38 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 
 			B->b_CurrentDistance += delta;
 
-			rangelock.rn_First = i0;
-			rangelock.rn_Last = i1;
-			AddTail(rangelist, &rangelock.rn_Node);
-
 			t = order[i0];
 			order[i0] = order[i1];
 			order[i1] = t;
-			i0 = (i0 + 1) % num;
-			i1 = getdeltaindex(num, i1, -1);
 
 			if (n > 3)
 			{
-				(*xpbase->unlockfastmutex)(xpbase, lock);
+				if (n > 8)
+				{
+					rangelock.rn_First = i0;
+					rangelock.rn_Last = i1;
+					AddTail(rangelist, &rangelock.rn_Node);
+					(*xpbase->unlockfastmutex)(xpbase, lock);
+				}
 
+				i0 = (i0 + 1) % num;
+				if (--i1 < 0) i1 += num;
+				
 				for (i = 1; i < n / 2; ++i)
 				{
 					t = order[i0];
 					order[i0] = order[i1];
 					order[i1] = t;
 					i0 = (i0 + 1) % num;
-					i1 = getdeltaindex(num, i1, -1);
+					if (--i1 < 0) i1 += num;
 				}
 
-				(*xpbase->lockfastmutex)(xpbase, lock);
+				if (n > 8)
+				{
+					(*xpbase->lockfastmutex)(xpbase, lock);
+					Remove(&rangelock.rn_Node);
+				}
 			}
-
-			Remove(&rangelock.rn_Node);
 		}
 		
 		(*xpbase->unlockfastmutex)(xpbase, lock);
