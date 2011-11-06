@@ -453,23 +453,39 @@ error_t binsort_gendistances(struct BinSort *B)
 }
 
 /*
-**	generate order - main function of optimization
+**	get distance (and starting position)
 */
 
-static dist_t getdist(struct DirEntry **order, int num, 
-	struct Distances *distances)
+static dist_t getdist(struct DirEntry **order, num_t num, 
+	struct Distances *distances, num_t *p_startpos)
 {
 	dist_t d = 0;
-	int i0;
+	num_t i0;
+	num_t startpos = 0;
+	dist_t worstd = -1;
 	for (i0 = 0; i0 < num; ++i0)
 	{
 		num_t a = order[i0]->den_Index;
 		num_t b = order[(i0 + 1) % num]->den_Index;
 		if (a >= 0 && b >= 0)
-			d += distances->dst_Array[a * distances->dst_Num + b];
+		{
+			dist_t dd = distances->dst_Array[a * distances->dst_Num + b];
+			d += dd;
+			if (dd > worstd)
+			{
+				worstd = dd;
+				startpos = i0;
+			}
+		}
 	}
+	if (p_startpos)
+		*p_startpos = startpos;
 	return d;
 }
+
+/*
+**	generate order - optimization main function
+*/
 
 static error_t binsort_genorder(struct BinSort *B)
 {
@@ -484,6 +500,7 @@ static error_t binsort_genorder(struct BinSort *B)
 	struct DirEntry **order;
 	int numworkers = B->b_Arguments->arg_NumThreads;
 	int quality = B->b_Arguments->arg_Quality;
+	num_t startpos;
 	struct OptMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
 		return ERR_OUT_OF_MEMORY;
@@ -505,7 +522,7 @@ static error_t binsort_genorder(struct BinSort *B)
 	}
 
 	/* distribute optimization to workers: */
-	d = getdist(order, num, distances);
+	d = getdist(order, num, distances, NULL);
 	B->b_CurrentDistance = d;
 	
 	for (i = 0; i < numworkers; ++i)
@@ -519,7 +536,7 @@ static error_t binsort_genorder(struct BinSort *B)
 		memset(&msgs[i].om_Random, 0x5a, sizeof msgs[i].om_Random);
 		tinymt32_init(&msgs[i].om_Random, 4567 + i);
 		msgs[i].om_Distances = distances;
-		msgs[i].om_InitialDistance = d * 7;
+		msgs[i].om_InitialDistance = d * 20;
 		msgs[i].om_NumIterations = pow(d, 1.1) * quality / numworkers;
 		(*xpbase->putmsg)(xpbase, port, rport, 
 			&msgs[i].om_Message.msg_XPMessage);
@@ -533,14 +550,15 @@ static error_t binsort_genorder(struct BinSort *B)
 			fprintf(stderr, "d=%lld         \r", B->b_CurrentDistance);
 	} while (numworkers > 0);
 
-	assert(B->b_CurrentDistance == getdist(order, num, distances));
+	d = getdist(order, num, distances, &startpos);
+	assert(B->b_CurrentDistance == d);
 
 	if (B->b_Arguments->arg_NoPrintDirs)
 		binsort_freedir(B);
-	
+
 	/* add files back to list: */
 	for (i = 0; i < num; ++i)
-		AddTail(&dlist->dls_Head, &order[i]->den_Node);
+		AddTail(&dlist->dls_Head, &order[(i + startpos + 1) % num]->den_Node);
 
 	free(msgs);
 	return ERR_SUCCESS;
