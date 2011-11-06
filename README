@@ -56,10 +56,11 @@ nevertheless. It is the only substep that may be I/O bound. Delta
 calculation and optimizing have quadratic time complexity. 
 
 Hashing and distances calculation are completely parallelizable, and
-do not suffer from increased overhead for synchronization. During
-optimization, on the other hand, threads compete for certain fields in
-the same data structure. Luckily, locking can be reduced to short code
-sections, and this task is (to some extent) parallalizable as well.
+do not suffer from an increased overhead for synchronization. During
+optimization, threads compete for certain fields in the same data
+structure. Locking can be reduced to short code sections, and this
+step is (to some extent) parallalizable as well. Too many threads,
+however, can impair the performance.
 
 Contact:
 Timm S. Mueller <tmueller@schulze-mueller.de>

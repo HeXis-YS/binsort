@@ -40,27 +40,10 @@
 #include "xpthread.h"
 #include "simhash.h"
 #include "tinymt32.h"
-
-#define PROG_NAME "binsort"
-#define BINSORT_DEFAULT_QUALITY 15
-#define BINSORT_DEFAULT_NUMTHREADS 3
+#include "binsort.h"
 
 typedef int32_t num_t;
 typedef int64_t dist_t;
-
-typedef enum 
-{
-	ERR_SUCCESS = 0,
-	ERR_ARGUMENTS,
-	ERR_THREAD_INIT,
-	ERR_THREAD_CREATE,
-	ERR_DIR_OPEN,
-	ERR_DIR_EXAMINE,
-	ERR_FILE_EXAMINE,
-	ERR_OUT_OF_MEMORY,
-	ERR_FILE_OPEN,
-	ERR_HASHING
-} error_t;
 
 typedef enum 
 {
@@ -138,7 +121,7 @@ struct DirEntry
 	uint8_t den_IsFile;
 	uint8_t den_IsDir;
 	num_t den_Index;
-	error_t den_Error;
+	binsort_error_t den_Error;
 	struct HashNode *den_HashNode;
 };
 
@@ -154,19 +137,10 @@ struct RangeNode
 	uint32_t rn_First, rn_Last;
 };
 
-struct Arguments
-{
-	const char *arg_Directory;
-	int arg_Quality;
-	int arg_Workers;
-	int arg_Quiet;
-	int arg_NoDirs;
-};
-
 struct BinSort
 {
 	/* Pointer to arguments */
-	struct Arguments *b_Arguments;
+	binsort_args_t *b_Arguments;
 	/* Threading library base */
 	struct XPBase *b_XPBase;
 	/* Main thread context */
@@ -262,17 +236,17 @@ static __inline void Remove(struct Node *node)
 **	thread-safe in a library, due to its use of readdir() and strerror()
 */
 
-static error_t dirlist_scan(struct DirList *list, const char *dirname)
+static binsort_error_t dirlist_scan(struct DirList *list, const char *dirname)
 {
 	struct Node *next, *node = list->dls_Head.lh_TailPred;
-	int num = 0, err = ERR_SUCCESS, res = 0;
+	int num = 0, err = BINSORT_ERROR_SUCCESS, res = 0;
 	struct dirent *dp;
 	size_t pathlen = strlen(dirname);
 	DIR *dir = opendir(dirname);
 	if (dir == NULL)
 	{
 		fprintf(stderr, "%s : %s\n", dirname, strerror(errno));
-		return ERR_DIR_OPEN;
+		return BINSORT_ERROR_DIR_OPEN;
 	}
 	if (pathlen > 0 && dirname[pathlen - 1] == '/')
 		pathlen--;
@@ -315,7 +289,7 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 	if (res != 0)
 	{
 		fprintf(stderr, "%s : %s\n", dirname, strerror(res));
-		err = ERR_DIR_EXAMINE;
+		err = BINSORT_ERROR_DIR_EXAMINE;
 	}
 	if (!err)
 	{
@@ -336,7 +310,7 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 **	Generate hashes for all files
 */
 
-static error_t binsort_genhashes(struct BinSort *B)
+static binsort_error_t binsort_genhashes(struct BinSort *B)
 {
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
@@ -378,7 +352,7 @@ static error_t binsort_genhashes(struct BinSort *B)
 		}
 	}
 	
-	return ERR_SUCCESS;
+	return BINSORT_ERROR_SUCCESS;
 }
 
 /*
@@ -386,7 +360,7 @@ static error_t binsort_genhashes(struct BinSort *B)
 **	Calculate distance array
 */
 
-error_t binsort_gendistances(struct BinSort *B)
+binsort_error_t binsort_gendistances(struct BinSort *B)
 {
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
@@ -396,7 +370,7 @@ error_t binsort_gendistances(struct BinSort *B)
 	num_t num = hashes->hls_Num;
 	struct HashMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
-		return ERR_OUT_OF_MEMORY;
+		return BINSORT_ERROR_OUT_OF_MEMORY;
 	
 	/* avoid overproportional number of workers per distances: */
 	if (num / 10 < numworkers)
@@ -454,7 +428,7 @@ error_t binsort_gendistances(struct BinSort *B)
 		}
 	} while (numworkers > 0);
 	free(msgs);
-	return ERR_SUCCESS;
+	return BINSORT_ERROR_SUCCESS;
 }
 
 /*
@@ -492,7 +466,7 @@ static dist_t getdist(struct DirEntry **order, num_t num,
 **	generate order - optimization main function
 */
 
-static error_t binsort_genorder(struct BinSort *B)
+static binsort_error_t binsort_genorder(struct BinSort *B)
 {
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
@@ -508,11 +482,11 @@ static error_t binsort_genorder(struct BinSort *B)
 	num_t startpos;
 	struct OptMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
-		return ERR_OUT_OF_MEMORY;
+		return BINSORT_ERROR_OUT_OF_MEMORY;
 	
 	B->b_Order = order = malloc(sizeof *order * dlist->dls_NumFiles);
 	if (order == NULL)
-		return ERR_OUT_OF_MEMORY;
+		return BINSORT_ERROR_OUT_OF_MEMORY;
 
 	/* remove files from list, add to array: */
 	node = dlist->dls_Head.lh_Head;
@@ -567,7 +541,7 @@ static error_t binsort_genorder(struct BinSort *B)
 		AddTail(&dlist->dls_Head, &order[(i + startpos + 1) % num]->den_Node);
 
 	free(msgs);
-	return ERR_SUCCESS;
+	return BINSORT_ERROR_SUCCESS;
 }
 
 
@@ -590,11 +564,9 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 	num_t i11, i00, a, b, c, d;
 	num_t arrnum = distances->dst_Num;
 	const uint8_t *array = distances->dst_Array;
-	
 	double dunk = 
-		(double) msg->om_InitialDistance * 1.25 / msg->om_NumIterations;
-		
-	for (i = 0; i < msg->om_NumIterations; ++i)
+		(double) msg->om_InitialDistance * 1.3 / msg->om_NumIterations;
+	for (i = 1; i < msg->om_NumIterations; ++i)
 	{
 		double thresh = (double) msg->om_InitialDistance / i - dunk;
 		if (thresh < 0) thresh = 0;
@@ -747,13 +719,13 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 
 static void binsort_worker_hash(struct Message *msg)
 {
-	error_t err = ERR_FILE_OPEN;
+	binsort_error_t err = BINSORT_ERROR_FILE_OPEN;
 	struct DirEntry *direntry = msg->msg_Data;
 	FILE *f = fopen(direntry->den_Name, "rb");
 	if (f)
 	{
 		struct simhash *h;
-		err = ERR_HASHING;
+		err = BINSORT_ERROR_HASHING;
 		h = simhash_file(f);
 		fclose(f);
 		if (h)
@@ -761,13 +733,13 @@ static void binsort_worker_hash(struct Message *msg)
 			size_t hsize;
 			const uint8_t *hash = simhash_get(h, &hsize);
 			struct HashNode *hn = malloc(sizeof *hn + hsize);
-			err = ERR_OUT_OF_MEMORY;
+			err = BINSORT_ERROR_OUT_OF_MEMORY;
 			if (hn)
 			{
 				hn->hn_Hash = (uint8_t *) (hn + 1);
 				memcpy(hn->hn_Hash, hash, hsize);
 				hn->hn_Size = hsize;
-				err = ERR_SUCCESS;
+				err = BINSORT_ERROR_SUCCESS;
 				direntry->den_HashNode = hn;
 			}
 			simhash_free(h);
@@ -886,7 +858,7 @@ static void binsort_freeworkers(struct BinSort *B)
 	}
 }
 
-static error_t binsort_initworkers(struct BinSort *B)
+static binsort_error_t binsort_initworkers(struct BinSort *B)
 {
 	int nt = B->b_Arguments->arg_Workers;
 	int i;
@@ -898,30 +870,44 @@ static error_t binsort_initworkers(struct BinSort *B)
 		if (B->b_Workers[i] == NULL)
 		{
 			binsort_freeworkers(B);
-			return ERR_THREAD_CREATE;
+			return BINSORT_ERROR_THREAD_CREATE;
 		}
 	}
-	return ERR_SUCCESS;
+	return BINSORT_ERROR_SUCCESS;
 }
 
-static error_t binsort_init(struct BinSort *B, struct Arguments *args)
+static binsort_error_t binsort_init(struct BinSort *B,
+	binsort_args_t *args)
 {
-	struct XPBase *xpbase;
+	binsort_error_t err = BINSORT_ERROR_ARGUMENTS;
 	memset(B, 0, sizeof *B);
-	B->b_Arguments = args;
 	InitList(&B->b_DirList.dls_Head);
 	InitList(&B->b_Hashes.hls_Head);
 	InitList(&B->b_RangeList);
-	B->b_XPBase = xpbase = xpthread_create(NULL);
-	if (xpbase == NULL)
-		return ERR_THREAD_INIT;
-	B->b_Lock = (*xpbase->createfastmutex)(xpbase);
-	if (B->b_Lock == NULL)
-		return ERR_THREAD_INIT;
-	B->b_Self = (*xpbase->findthread)(xpbase, NULL);
-	B->b_ReplyPort = (*xpbase->getuserport)(xpbase, B->b_Self);
-	B->b_ReplyPortSignal = (*xpbase->getportsignal)(xpbase, B->b_ReplyPort);
-	return binsort_initworkers(B);
+	while (args)
+	{
+		struct XPBase *xpbase;
+		B->b_Arguments = args;
+		if (args->arg_Directory == NULL)
+			break;
+		if (args->arg_Quality < 1 || args->arg_Quality > 1000)
+			break;
+		if (args->arg_Workers < 1 || args->arg_Workers > 128)
+			break;
+		err = BINSORT_ERROR_THREAD_INIT;
+		B->b_XPBase = xpbase = xpthread_create(NULL);
+		if (xpbase == NULL)
+			break;
+		B->b_Lock = (*xpbase->createfastmutex)(xpbase);
+		if (B->b_Lock == NULL)
+			break;
+		B->b_Self = (*xpbase->findthread)(xpbase, NULL);
+		B->b_ReplyPort = (*xpbase->getuserport)(xpbase, B->b_Self);
+		B->b_ReplyPortSignal = (*xpbase->getportsignal)(xpbase, 
+			B->b_ReplyPort);
+		return binsort_initworkers(B);
+	}
+	return err;
 }
 
 static void binsort_freedir(struct BinSort *B)
@@ -966,17 +952,21 @@ static void binsort_free(struct BinSort *B)
 
 
 /*
+**	Public interface starts here
+*/
+
+/*
 **	err = binsort_run(binsort, dirname)
 **	binsort main procedure
 */
 
-static error_t binsort_run(struct BinSort *B, const char *dirname)
+binsort_error_t binsort_run(struct BinSort *B)
 {
-	error_t err;
+	binsort_error_t err;
 	int quiet = B->b_Arguments->arg_Quiet;
 	do
 	{
-		err = dirlist_scan(&B->b_DirList, dirname);
+		err = dirlist_scan(&B->b_DirList, B->b_Arguments->arg_Directory);
 		if (err)
 		{
 			fprintf(stderr, "*** error scanning directory\n");
@@ -1041,124 +1031,24 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 	return err;
 }
 
-
-/*
-**	main
-*/
-
-typedef struct { const char *key; void *val; void *ptr; char type; } arg_t;
-
-static int parseargs(int argc, char **argv, arg_t *args, int numargs)
+void binsort_destroy(struct BinSort *B)
 {
-	int i, j, wait = 0, n = -1, k = -1;
-	for (i = 1; i < argc; ++i)
-	{
-		const char *arg = argv[i];
-		switch (wait)
-		{
-			case 0:
-				break;
-			case 'n':
-				args[n].val = args[n].ptr;
-				*((int *) args[n].ptr) = atoi(arg);
-				wait = 0;
-				continue;
-		}
-		for (j = 0; j < numargs; ++j)
-		{
-			if (args[j].val)
-				continue;
-			if (args[j].key)
-			{
-				if (!strcmp(arg, args[j].key))
-				{
-					n = j;
-					if (args[j].type == 'n')
-						wait = 'n';
-					else if (args[j].type == 'b')
-						*((int *) args[n].ptr) = 1;
-					break;
-				}
-			}
-			else
-				k = j;
-		}
-		if (j == numargs)
-		{
-			if (k >= 0 && !args[k].val)
-			{
-				args[k].val = args[k].ptr;
-				*((const char **) args[k].ptr) = arg;
-				continue;
-			}
-			return 0;
-		}
-	}
-	if (wait)
-		return 0;
-	return 1;
+	binsort_free(B);
+	free(B);
 }
 
-int main(int argc, char **argv)
+binsort_error_t binsort_create(struct BinSort **B, binsort_args_t *args)
 {
-	int res = EXIT_FAILURE;
-	int help = 0;
-	struct Arguments args = 
-		{ NULL, BINSORT_DEFAULT_QUALITY, BINSORT_DEFAULT_NUMTHREADS, 0, 0 };
-	arg_t argp[7];
-	memset(argp, 0, sizeof argp);
-	argp[0].type = 's'; argp[0].ptr = &args.arg_Directory;
-	argp[1].type = 'n'; argp[1].key = "-o"; argp[1].ptr = &args.arg_Quality;
-	argp[2].type = 'n'; argp[2].key = "-t"; argp[2].ptr = &args.arg_Workers;
-	argp[3].type = 'b'; argp[3].key = "-q"; argp[3].ptr = &args.arg_Quiet;
-	argp[4].type = 'b'; argp[4].key = "-d"; argp[4].ptr = &args.arg_NoDirs;
-	argp[5].type = 'b'; argp[5].key = "-h"; argp[5].ptr = &help;
-	argp[6].type = 'b'; argp[6].key = "--help"; argp[6].ptr = &help;
-
-	if (parseargs(argc, argv, argp, 7) && !help)
+	binsort_error_t err = BINSORT_ERROR_OUT_OF_MEMORY;
+	*B = malloc(sizeof **B);
+	if (*B)
 	{
-		do
+		err = binsort_init(*B, args);
+		if (err)
 		{
-			struct BinSort binsort, *B = &binsort;
-			error_t err = ERR_ARGUMENTS;
-			if (!args.arg_Directory)
-			{
-				printf(PROG_NAME ": Directory argument missing\n");
-				break;
-			}
-			if (args.arg_Quality < 1 || args.arg_Quality > 1000)
-			{
-				printf(PROG_NAME 
-					": Optimization quality must be between 3 and 128\n");
-				break;
-			}
-			if (args.arg_Workers < 1 || args.arg_Workers > 128)
-			{
-				printf(PROG_NAME 
-					": Number of threads must be between 1 and 128\n");
-				break;
-			}
-			err = binsort_init(B, &args);
-			if (!err)
-				err = binsort_run(B, args.arg_Directory);
-			binsort_free(B);
-			if (!err)
-				err = EXIT_SUCCESS;
-		} while (0);
+			binsort_destroy(*B);
+			*B = NULL;
+		}
 	}
-	else
-	{
-		printf("Usage: %s [options] dir\n", PROG_NAME);
-		printf("Options:\n");
-		printf("  -o          Optimization level [1...1000], default: %d\n",
-			BINSORT_DEFAULT_QUALITY);
-		printf("  -t          Number of threads [1...128], default: %d\n",
-			BINSORT_DEFAULT_NUMTHREADS);
-		printf("  -q          Quiet operation, no progress indicators\n");
-		printf("  -d          Do not include directories in output list\n");
-		printf("  -h  --help  This help\n");
-		printf("\nNote: Results are not stable unless you specify -t 1.\n");
-	}
-	
-	return res;
+	return err;
 }
