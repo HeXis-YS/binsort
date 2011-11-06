@@ -35,6 +35,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #include "xpthread.h"
 #include "simhash.h"
@@ -45,7 +46,7 @@
 #define BINSORT_DEFAULT_NUMTHREADS 3
 
 typedef int32_t num_t;
-typedef long long dist_t;
+typedef int64_t dist_t;
 
 typedef enum 
 {
@@ -58,14 +59,14 @@ typedef enum
 	ERR_FILE_EXAMINE,
 	ERR_OUT_OF_MEMORY,
 	ERR_FILE_OPEN,
-	ERR_HASHING,
+	ERR_HASHING
 } error_t;
 
 typedef enum 
 {
 	MSG_HASH,
 	MSG_CALCDIST,
-	MSG_OPTIMIZE,
+	MSG_OPTIMIZE
 } msgtype_t;
 
 struct Node
@@ -157,9 +158,9 @@ struct Arguments
 {
 	const char *arg_Directory;
 	int arg_Quality;
-	int arg_NumThreads;
+	int arg_Workers;
 	int arg_Quiet;
-	int arg_NoPrintDirs;
+	int arg_NoDirs;
 };
 
 struct BinSort
@@ -257,7 +258,8 @@ static __inline void Remove(struct Node *node)
 
 /*
 **	err = dirlist_scan(dirlist, dirname)
-**	Scan directory recursively
+**	Scan directory recursively. Note that this function would not be
+**	thread-safe in a library, due to its use of readdir() and strerror()
 */
 
 static error_t dirlist_scan(struct DirList *list, const char *dirname)
@@ -268,10 +270,13 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 	size_t pathlen = strlen(dirname);
 	DIR *dir = opendir(dirname);
 	if (dir == NULL)
+	{
+		fprintf(stderr, "%s : %s\n", dirname, strerror(errno));
 		return ERR_DIR_OPEN;
+	}
 	if (pathlen > 0 && dirname[pathlen - 1] == '/')
 		pathlen--;
-	while ((dp = readdir(dir)))
+	while ((errno = 0, dp = readdir(dir)))
 	{
 		struct DirEntry *direntry;
 		size_t nlen;
@@ -302,16 +307,16 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 				num++;
 			}
 			else
-			{
-				free(direntry);
-				err = ERR_FILE_EXAMINE;
-				break;
-			}
+				fprintf(stderr, "%s : %s\n", p, strerror(errno));
 		}
 	}
+	res = errno;
 	closedir(dir);
 	if (res != 0)
+	{
+		fprintf(stderr, "%s : %s\n", dirname, strerror(res));
 		err = ERR_DIR_EXAMINE;
+	}
 	if (!err)
 	{
 		int i = 0;
@@ -320,11 +325,7 @@ static error_t dirlist_scan(struct DirList *list, const char *dirname)
 		{
 			struct DirEntry *dn = (struct DirEntry *) node;
 			if (dn->den_IsDir)
-			{
-				err = dirlist_scan(list, dn->den_Name);
-				if (err)
-					break;
-			}
+				dirlist_scan(list, dn->den_Name);
 		}
 	}
 	return err;
@@ -341,7 +342,7 @@ static error_t binsort_genhashes(struct BinSort *B)
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK sig, portsig = B->b_ReplyPortSignal;
 	struct Node *next, *node = B->b_DirList.dls_Head.lh_Head;
-	int numworkers = B->b_Arguments->arg_NumThreads;
+	int numworkers = B->b_Arguments->arg_Workers;
 	int sent = 0;
 	int quiet = B->b_Arguments->arg_Quiet;
 	
@@ -359,7 +360,7 @@ static error_t binsort_genhashes(struct BinSort *B)
 		}
 	}
 	
-	do
+	while (sent > 0)
 	{
 		struct XPMessage *msg;
 		sig = (*xpbase->wait)(xpbase, portsig);
@@ -375,7 +376,7 @@ static error_t binsort_genhashes(struct BinSort *B)
 			if ((--sent & 127) == 0 && !quiet)
 				fprintf(stderr, "%d files left   \r", sent);
 		}
-	} while (sent > 0);
+	}
 	
 	return ERR_SUCCESS;
 }
@@ -390,7 +391,7 @@ error_t binsort_gendistances(struct BinSort *B)
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK portsig = B->b_ReplyPortSignal;
-	int numworkers = B->b_Arguments->arg_NumThreads;
+	int numworkers = B->b_Arguments->arg_Workers;
 	struct HashList *hashes = &B->b_Hashes;
 	num_t num = hashes->hls_Num;
 	struct HashMessage *msgs = malloc(sizeof *msgs * numworkers);
@@ -399,17 +400,21 @@ error_t binsort_gendistances(struct BinSort *B)
 	
 	/* avoid overproportional number of workers per distances: */
 	if (num / 10 < numworkers)
+	{
 		numworkers = num / 10;
+		if (numworkers < 1)
+			numworkers = 1;
+	}
 	
 	do
 	{
 		int y, i, i0;
 		struct Node *ynext, *ynode = hashes->hls_Head.lh_Head;
-		B->b_DistancesLeft = (num - 1) * (num - 1) / 2;
 		double a0 = num * num / numworkers;
 		struct Distances *d = malloc(sizeof *d + num * num);
 		if (d == NULL)
 			break;
+		B->b_DistancesLeft = (num - 1) * (num - 1) / 2;
 		d->dst_Num = num;
 		d->dst_Array = (uint8_t *) (d + 1);
 		for (i = i0 = y = 0; (ynext = ynode->ln_Succ); ynode = ynext, ++y)
@@ -498,7 +503,7 @@ static error_t binsort_genorder(struct BinSort *B)
 	dist_t d;
 	struct Node *next, *node;
 	struct DirEntry **order;
-	int numworkers = B->b_Arguments->arg_NumThreads;
+	int numworkers = B->b_Arguments->arg_Workers;
 	int quality = B->b_Arguments->arg_Quality;
 	num_t startpos;
 	struct OptMessage *msgs = malloc(sizeof *msgs * numworkers);
@@ -547,13 +552,14 @@ static error_t binsort_genorder(struct BinSort *B)
 		while ((*xpbase->getmsg)(xpbase, rport))
 			--numworkers;
 		if (!B->b_Arguments->arg_Quiet && (sig & XPT_SIG_UPDATE))
-			fprintf(stderr, "d=%lld         \r", B->b_CurrentDistance);
+			fprintf(stderr, "d=%ld         \r", 
+				(long int) B->b_CurrentDistance);
 	} while (numworkers > 0);
 
 	d = getdist(order, num, distances, &startpos);
 	assert(B->b_CurrentDistance == d);
 
-	if (B->b_Arguments->arg_NoPrintDirs)
+	if (B->b_Arguments->arg_NoDirs)
 		binsort_freedir(B);
 
 	/* add files back to list: */
@@ -602,7 +608,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 		i1 = tinymt32_generate_uint32(random) % num;
 		n = 0;
 
-		if (i0 > i1 + 2)
+		if (i0 >= i1 + 2)
 		{
 			n = num - i0 + i1 + 1;
 			if (n > i0 - i1 - 1)
@@ -613,7 +619,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
 				n = i1 - i0 + 1;
 			}
 		}
-		else if (i1 > i0 && i1 - i0 < num - 2)
+		else if (i1 > i0 && i1 - i0 <= num - 2)
 		{
 			if (num - i1 + i0 - 1 < i1 - i0 + 1)
 			{
@@ -861,7 +867,7 @@ static void binsort_freeworkers(struct BinSort *B)
 {
 	if (B->b_Workers)
 	{
-		int nt = B->b_Arguments->arg_NumThreads;
+		int nt = B->b_Arguments->arg_Workers;
 		int i;
 		for (i = 0; i < nt; ++i)
 		{
@@ -882,7 +888,7 @@ static void binsort_freeworkers(struct BinSort *B)
 
 static error_t binsort_initworkers(struct BinSort *B)
 {
-	int nt = B->b_Arguments->arg_NumThreads;
+	int nt = B->b_Arguments->arg_Workers;
 	int i;
 	B->b_Workers = malloc(sizeof *B->b_Workers * nt);
 	for (i = 0; i < nt; ++i)
@@ -988,22 +994,28 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 			break;
 		}
 		
-		if (!quiet)
-			fprintf(stderr, "calculating %d distances ...\n",
-				B->b_Hashes.hls_Num * B->b_Hashes.hls_Num / 2);
-		
-		err = binsort_gendistances(B);
-		if (err)
+		if (B->b_Hashes.hls_Num > 2) /* need min. 3 files to optimize */
 		{
-			fprintf(stderr, "*** error calculating distances\n");
-			break;
+			if (!quiet)
+				fprintf(stderr, "calculating %d distances ...\n",
+					B->b_Hashes.hls_Num * B->b_Hashes.hls_Num / 2);
+			
+			err = binsort_gendistances(B);
+			if (err)
+			{
+				fprintf(stderr, "*** error calculating distances\n");
+				break;
+			}
+			
+			if (!quiet)
+				fprintf(stderr, "optimizing ...        \n");
+			
+			err = binsort_genorder(B);
+			binsort_freedistances(B);
 		}
-		
-		if (!quiet)
-			fprintf(stderr, "optimizing ...        \n");
-		
-		err = binsort_genorder(B);
-		binsort_freedistances(B);
+		else if (!quiet)
+			fprintf(stderr, "nothing to optimize\n");
+			
 		
 		if (err)
 		{
@@ -1014,8 +1026,8 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 		{
 			struct Node *next, *node;
 			if (!quiet)
-				fprintf(stderr, "d=%lld done.              \n", 
-					B->b_CurrentDistance);
+				fprintf(stderr, "d=%ld done.              \n", 
+					(long int) B->b_CurrentDistance);
 			node = B->b_DirList.dls_Head.lh_Head;
 			for (; (next = node->ln_Succ); node = next)
 			{
@@ -1034,7 +1046,7 @@ static error_t binsort_run(struct BinSort *B, const char *dirname)
 **	main
 */
 
-typedef struct { const char *key; void *val; void *valptr; char type; } arg_t;
+typedef struct { const char *key; void *val; void *ptr; char type; } arg_t;
 
 static int parseargs(int argc, char **argv, arg_t *args, int numargs)
 {
@@ -1047,8 +1059,8 @@ static int parseargs(int argc, char **argv, arg_t *args, int numargs)
 			case 0:
 				break;
 			case 'n':
-				args[n].val = args[n].valptr;
-				*((int *) args[n].valptr) = atoi(arg);
+				args[n].val = args[n].ptr;
+				*((int *) args[n].ptr) = atoi(arg);
 				wait = 0;
 				continue;
 		}
@@ -1064,7 +1076,7 @@ static int parseargs(int argc, char **argv, arg_t *args, int numargs)
 					if (args[j].type == 'n')
 						wait = 'n';
 					else if (args[j].type == 'b')
-						*((int *) args[n].valptr) = 1;
+						*((int *) args[n].ptr) = 1;
 					break;
 				}
 			}
@@ -1075,8 +1087,8 @@ static int parseargs(int argc, char **argv, arg_t *args, int numargs)
 		{
 			if (k >= 0 && !args[k].val)
 			{
-				args[k].val = args[k].valptr;
-				*((const char **) args[k].valptr) = arg;
+				args[k].val = args[k].ptr;
+				*((const char **) args[k].ptr) = arg;
 				continue;
 			}
 			return 0;
@@ -1093,17 +1105,17 @@ int main(int argc, char **argv)
 	int help = 0;
 	struct Arguments args = 
 		{ NULL, BINSORT_DEFAULT_QUALITY, BINSORT_DEFAULT_NUMTHREADS, 0, 0 };
-	arg_t argparse[] = 
-	{ 
-		{ NULL, NULL, &args.arg_Directory, 's' },
-		{ "-o", NULL, &args.arg_Quality, 'n' },
-		{ "-t", NULL, &args.arg_NumThreads, 'n' },
-		{ "-q", NULL, &args.arg_Quiet, 'b' },
-		{ "-d", NULL, &args.arg_NoPrintDirs, 'b' },
-		{ "-h", NULL, &help, 'b' },
-		{ "--help", NULL, &help, 'b'},
-	};
-	if (parseargs(argc, argv, argparse, 7) && !help)
+	arg_t argp[7];
+	memset(argp, 0, sizeof argp);
+	argp[0].type = 's'; argp[0].ptr = &args.arg_Directory;
+	argp[1].type = 'n'; argp[1].key = "-o"; argp[1].ptr = &args.arg_Quality;
+	argp[2].type = 'n'; argp[2].key = "-t"; argp[2].ptr = &args.arg_Workers;
+	argp[3].type = 'b'; argp[3].key = "-q"; argp[3].ptr = &args.arg_Quiet;
+	argp[4].type = 'b'; argp[4].key = "-d"; argp[4].ptr = &args.arg_NoDirs;
+	argp[5].type = 'b'; argp[5].key = "-h"; argp[5].ptr = &help;
+	argp[6].type = 'b'; argp[6].key = "--help"; argp[6].ptr = &help;
+
+	if (parseargs(argc, argv, argp, 7) && !help)
 	{
 		do
 		{
@@ -1120,7 +1132,7 @@ int main(int argc, char **argv)
 					": Optimization quality must be between 3 and 128\n");
 				break;
 			}
-			if (args.arg_NumThreads < 1 || args.arg_NumThreads > 128)
+			if (args.arg_Workers < 1 || args.arg_Workers > 128)
 			{
 				printf(PROG_NAME 
 					": Number of threads must be between 1 and 128\n");

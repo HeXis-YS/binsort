@@ -1,6 +1,6 @@
 
 DEFS = -DXPT_PTHREADS # -DNDEBUG # use XPT_WINDOWS for native Windows threads
-WARN = -Wall -Wextra -Wno-unused-parameter
+WARN = -ansi -pedantic -Wall -Wextra -Wno-unused-parameter
 OPT = -O2
 CFLAGS = $(DEFS) $(WARN) $(OPT)
 CC = gcc

@@ -48,12 +48,12 @@ void tinymt32_init_by_array(tinymt32_t * random, uint32_t init_key[],
  * @param random not used
  * @return always 127
  */
-inline static int tinymt32_get_mexp(
+__inline static int tinymt32_get_mexp(
     tinymt32_t * random  __attribute__((unused))) {
     return TINYMT32_MEXP;
 }
 #else
-inline static int tinymt32_get_mexp(tinymt32_t * random) {
+__inline static int tinymt32_get_mexp(tinymt32_t * random) {
     return TINYMT32_MEXP;
 }
 #endif
@@ -63,7 +63,7 @@ inline static int tinymt32_get_mexp(tinymt32_t * random) {
  * Users should not call this function directly.
  * @param random tinymt internal status
  */
-inline static void tinymt32_next_state(tinymt32_t * random) {
+__inline static void tinymt32_next_state(tinymt32_t * random) {
     uint32_t x;
     uint32_t y;
 
@@ -87,7 +87,7 @@ inline static void tinymt32_next_state(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return 32-bit unsigned pseudorandom number
  */
-inline static uint32_t tinymt32_temper(tinymt32_t * random) {
+__inline static uint32_t tinymt32_temper(tinymt32_t * random) {
     uint32_t t0, t1;
     t0 = random->status[3];
 #if defined(LINEARITY_CHECK)
@@ -108,7 +108,7 @@ inline static uint32_t tinymt32_temper(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (1.0 <= r < 2.0)
  */
-inline static float tinymt32_temper_conv(tinymt32_t * random) {
+__inline static float tinymt32_temper_conv(tinymt32_t * random) {
     uint32_t t0, t1;
     union {
 	uint32_t u;
@@ -135,7 +135,7 @@ inline static float tinymt32_temper_conv(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (1.0 < r < 2.0)
  */
-inline static float tinymt32_temper_conv_open(tinymt32_t * random) {
+__inline static float tinymt32_temper_conv_open(tinymt32_t * random) {
     uint32_t t0, t1;
     union {
 	uint32_t u;
@@ -161,7 +161,7 @@ inline static float tinymt32_temper_conv_open(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return 32-bit unsigned integer r (0 <= r < 2^32)
  */
-inline static uint32_t tinymt32_generate_uint32(tinymt32_t * random) {
+__inline static uint32_t tinymt32_generate_uint32(tinymt32_t * random) {
     tinymt32_next_state(random);
     return tinymt32_temper(random);
 }
@@ -174,7 +174,7 @@ inline static uint32_t tinymt32_generate_uint32(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (0.0 <= r < 1.0)
  */
-inline static float tinymt32_generate_float(tinymt32_t * random) {
+__inline static float tinymt32_generate_float(tinymt32_t * random) {
     tinymt32_next_state(random);
     return tinymt32_temper(random) * TINYMT32_MUL;
 }
@@ -185,7 +185,7 @@ inline static float tinymt32_generate_float(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (1.0 <= r < 2.0)
  */
-inline static float tinymt32_generate_float12(tinymt32_t * random) {
+__inline static float tinymt32_generate_float12(tinymt32_t * random) {
     tinymt32_next_state(random);
     return tinymt32_temper_conv(random);
 }
@@ -196,7 +196,7 @@ inline static float tinymt32_generate_float12(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (0.0 <= r < 1.0)
  */
-inline static float tinymt32_generate_float01(tinymt32_t * random) {
+__inline static float tinymt32_generate_float01(tinymt32_t * random) {
     tinymt32_next_state(random);
     return tinymt32_temper_conv(random) - 1.0f;
 }
@@ -207,7 +207,7 @@ inline static float tinymt32_generate_float01(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (0.0 < r <= 1.0)
  */
-inline static float tinymt32_generate_floatOC(tinymt32_t * random) {
+__inline static float tinymt32_generate_floatOC(tinymt32_t * random) {
     tinymt32_next_state(random);
     return 1.0f - tinymt32_generate_float(random);
 }
@@ -218,7 +218,7 @@ inline static float tinymt32_generate_floatOC(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (0.0 < r < 0.0)
  */
-inline static float tinymt32_generate_floatOO(tinymt32_t * random) {
+__inline static float tinymt32_generate_floatOO(tinymt32_t * random) {
     tinymt32_next_state(random);
     return tinymt32_temper_conv_open(random) - 1.0f;
 }
@@ -231,7 +231,7 @@ inline static float tinymt32_generate_floatOO(tinymt32_t * random) {
  * @param random tinymt internal status
  * @return floating point number r (1.0 < r < 2.0)
  */
-inline static double tinymt32_generate_32double(tinymt32_t * random) {
+__inline static double tinymt32_generate_32double(tinymt32_t * random) {
     tinymt32_next_state(random);
     return tinymt32_temper(random) * (1.0 / 4294967296.0);
 }
