@@ -10,10 +10,8 @@
 #include "binsort.h"
 
 #define PROG_NAME "binsort"
-#define BINSORT_DEFAULT_QUALITY 15
-#define BINSORT_DEFAULT_NUMTHREADS 3
 
-typedef struct { const char *key; void *val; void *ptr; } arg_t;
+typedef struct { const char *key; binsort_argval_t *val, *ptr; } arg_t;
 
 static int parseargs(int argc, char **argv, arg_t *args, int numargs)
 {
@@ -66,46 +64,56 @@ static int parseargs(int argc, char **argv, arg_t *args, int numargs)
 	return 1;
 }
 
+enum { ARG_DIR, ARG_QUAL, ARG_NUMT, ARG_QUIET, ARG_NODIR, ARG_HELP1,
+	ARG_HELP2, ARG_NUM };
+
 int main(int argc, char **argv)
 {
 	int res = EXIT_FAILURE;
-	int help = 0;
-	binsort_args_t args = 
-		{ NULL, BINSORT_DEFAULT_QUALITY, BINSORT_DEFAULT_NUMTHREADS, 0, 0 };
-	arg_t argp[7];
+	arg_t argp[ARG_NUM];
+	binsort_argval_t help = 0;
+	binsort_argitem_t args[] =
+	{
+		{ BINSORT_ARG_DIRECTORY, 0 },
+		{ BINSORT_ARG_QUALITY, BINSORT_DEFAULT_QUALITY },
+		{ BINSORT_ARG_NUMWORKERS, BINSORT_DEFAULT_NUMTHREADS },
+		{ BINSORT_ARG_QUIET, 0 },
+		{ BINSORT_ARG_NODIRS, 0 },
+		{ BINSORT_ARGS_DONE, 0 },
+	};
 	memset(argp, 0, sizeof argp);
-	argp[0].key = "s"; argp[0].ptr = &args.arg_Directory;
-	argp[1].key = "n-o"; argp[1].ptr = &args.arg_Quality;
-	argp[2].key = "n-t"; argp[2].ptr = &args.arg_Workers;
-	argp[3].key = "b-q"; argp[3].ptr = &args.arg_Quiet;
-	argp[4].key = "b-d"; argp[4].ptr = &args.arg_NoDirs;
-	argp[5].key = "b-h"; argp[5].ptr = &help;
-	argp[6].key = "b--help"; argp[6].ptr = &help;
-	if (parseargs(argc, argv, argp, 7) && !help)
+	argp[ARG_DIR].key = "s"; argp[ARG_DIR].ptr = &args[0].value;
+	argp[ARG_QUAL].key = "n-o"; argp[ARG_QUAL].ptr = &args[1].value;
+	argp[ARG_NUMT].key = "n-t"; argp[ARG_NUMT].ptr = &args[2].value;
+	argp[ARG_QUIET].key = "b-q"; argp[ARG_QUIET].ptr = &args[3].value;
+	argp[ARG_NODIR].key = "b-d"; argp[ARG_NODIR].ptr = &args[4].value;
+	argp[ARG_HELP1].key = "b-h"; argp[ARG_HELP1].ptr = &help;
+	argp[ARG_HELP2].key = "b--help"; argp[ARG_HELP2].ptr = &help;
+	if (parseargs(argc, argv, argp, ARG_NUM) && !help)
 	{
 		do
 		{
-			struct BinSort *B;
+			binsort_t *B;
 			binsort_error_t err = BINSORT_ERROR_ARGUMENTS;
-			if (!args.arg_Directory)
+			if (!args[ARG_DIR].value)
 			{
 				printf(PROG_NAME ": Directory argument missing\n");
 				break;
 			}
-			if (args.arg_Quality < 1 || args.arg_Quality > 1000)
+			if (args[ARG_QUAL].value < 1 || args[ARG_QUAL].value > 1000)
 			{
 				printf(PROG_NAME 
 					": Optimization quality must be between 3 and 128\n");
 				break;
 			}
-			if (args.arg_Workers < 1 || args.arg_Workers > 128)
+			if (args[ARG_NUMT].value < 1 || args[ARG_NUMT].value > 128)
 			{
 				printf(PROG_NAME 
 					": Number of threads must be between 1 and 128\n");
 				break;
 			}
 			
-			err = binsort_create(&B, &args);
+			err = binsort_create(&B, args);
 			if (!err)
 			{
 				err = binsort_run(B);

@@ -1,6 +1,8 @@
 #ifndef BINSORT_H
 #define BINSORT_H
 
+#include <stdint.h>
+
 /*
 **	Binsort - library interface
 **
@@ -9,6 +11,28 @@
 **
 **	See annotations in README and binsort.c
 */
+
+#define BINSORT_DEFAULT_QUALITY 15
+#define BINSORT_DEFAULT_NUMTHREADS 3
+
+typedef intptr_t binsort_argval_t;
+
+typedef enum 
+{
+	BINSORT_ARGS_DONE = 0,
+	BINSORT_ARGS_USER = 0x40000000,
+	BINSORT_ARG_DIRECTORY,
+	BINSORT_ARG_QUALITY,
+	BINSORT_ARG_NUMWORKERS,
+	BINSORT_ARG_QUIET,
+	BINSORT_ARG_NODIRS
+} binsort_argkey_t;
+
+typedef struct 
+{
+	binsort_argkey_t key;
+	binsort_argval_t value;
+} binsort_argitem_t;
 
 typedef enum
 {
@@ -23,21 +47,11 @@ typedef enum
 	BINSORT_ERROR_HASHING
 } binsort_error_t;
 
-typedef struct
-{
-	const char *arg_Directory;
-	int arg_Quality;
-	int arg_Workers;
-	int arg_Quiet;
-	int arg_NoDirs;
-} binsort_args_t;
-
 struct BinSort; /* forward declaration */
-/*typedef struct BinSort binsort_t;*/
+typedef struct BinSort binsort_t;
 
-extern binsort_error_t binsort_create(struct BinSort **B,
-	binsort_args_t *args);
-extern void binsort_destroy(struct BinSort *B);
-extern binsort_error_t binsort_run(struct BinSort *B);
+extern binsort_error_t binsort_create(binsort_t **B, binsort_argitem_t *args);
+extern void binsort_destroy(binsort_t *B);
+extern binsort_error_t binsort_run(binsort_t *B);
 
 #endif /* BINSORT_H */

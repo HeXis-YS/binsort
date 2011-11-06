@@ -139,8 +139,12 @@ struct RangeNode
 
 struct BinSort
 {
-	/* Pointer to arguments */
-	binsort_args_t *b_Arguments;
+	/* Arguments */
+	const char *b_Directory;
+	int b_Quality;
+	int b_NumWorkers;
+	int b_Quiet;
+	int b_NoDirs;
 	/* Threading library base */
 	struct XPBase *b_XPBase;
 	/* Main thread context */
@@ -171,7 +175,33 @@ struct BinSort
 
 #define XPT_SIG_UPDATE	0x00010000
 
-static void binsort_freedir(struct BinSort *B);
+static void binsort_freedir(binsort_t *B);
+
+
+
+/*
+**	tag = GetTag(argitemlist, key, defvalue)
+**	Get argument item value
+*/
+
+static binsort_argval_t GetTag(binsort_argitem_t *taglist,
+	binsort_argkey_t tag, binsort_argval_t defvalue)
+{
+	while (taglist)
+	{
+		binsort_argkey_t listtag = taglist->key;
+		switch (listtag)
+		{
+			case BINSORT_ARGS_DONE:
+				return defvalue;
+			default:
+				if (tag == listtag)
+					return taglist->value;
+				taglist++;
+		}
+	}
+	return defvalue;
+}
 
 
 /*
@@ -310,15 +340,15 @@ static binsort_error_t dirlist_scan(struct DirList *list, const char *dirname)
 **	Generate hashes for all files
 */
 
-static binsort_error_t binsort_genhashes(struct BinSort *B)
+static binsort_error_t binsort_genhashes(binsort_t *B)
 {
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK sig, portsig = B->b_ReplyPortSignal;
 	struct Node *next, *node = B->b_DirList.dls_Head.lh_Head;
-	int numworkers = B->b_Arguments->arg_Workers;
+	int numworkers = B->b_NumWorkers;
 	int sent = 0;
-	int quiet = B->b_Arguments->arg_Quiet;
+	int quiet = B->b_Quiet;
 	
 	for (; (next = node->ln_Succ); node = next)
 	{
@@ -360,12 +390,12 @@ static binsort_error_t binsort_genhashes(struct BinSort *B)
 **	Calculate distance array
 */
 
-binsort_error_t binsort_gendistances(struct BinSort *B)
+binsort_error_t binsort_gendistances(binsort_t *B)
 {
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK portsig = B->b_ReplyPortSignal;
-	int numworkers = B->b_Arguments->arg_Workers;
+	int numworkers = B->b_NumWorkers;
 	struct HashList *hashes = &B->b_Hashes;
 	num_t num = hashes->hls_Num;
 	struct HashMessage *msgs = malloc(sizeof *msgs * numworkers);
@@ -421,7 +451,7 @@ binsort_error_t binsort_gendistances(struct BinSort *B)
 		XPSIGMASK sig = (*xpbase->wait)(xpbase, portsig | XPT_SIG_UPDATE);
 		while ((*xpbase->getmsg)(xpbase, rport))
 			--numworkers;
-		if (!B->b_Arguments->arg_Quiet && (sig & XPT_SIG_UPDATE))
+		if (!B->b_Quiet && (sig & XPT_SIG_UPDATE))
 		{
 			fprintf(stderr, "%d distances left           \r", 
 				B->b_DistancesLeft);
@@ -466,7 +496,7 @@ static dist_t getdist(struct DirEntry **order, num_t num,
 **	generate order - optimization main function
 */
 
-static binsort_error_t binsort_genorder(struct BinSort *B)
+static binsort_error_t binsort_genorder(binsort_t *B)
 {
 	struct XPBase *xpbase = B->b_XPBase;
 	struct XPPort *rport = B->b_ReplyPort;
@@ -477,8 +507,8 @@ static binsort_error_t binsort_genorder(struct BinSort *B)
 	dist_t d;
 	struct Node *next, *node;
 	struct DirEntry **order;
-	int numworkers = B->b_Arguments->arg_Workers;
-	int quality = B->b_Arguments->arg_Quality;
+	int numworkers = B->b_NumWorkers;
+	int quality = B->b_Quality;
 	num_t startpos;
 	struct OptMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
@@ -525,7 +555,7 @@ static binsort_error_t binsort_genorder(struct BinSort *B)
 		XPSIGMASK sig = (*xpbase->wait)(xpbase, portsig | XPT_SIG_UPDATE);
 		while ((*xpbase->getmsg)(xpbase, rport))
 			--numworkers;
-		if (!B->b_Arguments->arg_Quiet && (sig & XPT_SIG_UPDATE))
+		if (!B->b_Quiet && (sig & XPT_SIG_UPDATE))
 			fprintf(stderr, "d=%ld         \r", 
 				(long int) B->b_CurrentDistance);
 	} while (numworkers > 0);
@@ -533,7 +563,7 @@ static binsort_error_t binsort_genorder(struct BinSort *B)
 	d = getdist(order, num, distances, &startpos);
 	assert(B->b_CurrentDistance == d);
 
-	if (B->b_Arguments->arg_NoDirs)
+	if (B->b_NoDirs)
 		binsort_freedir(B);
 
 	/* add files back to list: */
@@ -549,7 +579,7 @@ static binsort_error_t binsort_genorder(struct BinSort *B)
 **	optimization worker
 */
 
-static void binsort_worker_optimize(struct XPBase *xpbase, struct BinSort *B,
+static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	struct OptMessage *msg)
 {
 	struct DirEntry **order = msg->om_Order;
@@ -755,7 +785,7 @@ static void binsort_worker_hash(struct Message *msg)
 **	distance calculation worker
 */
 
-static void binsort_worker_calcdist(struct XPBase *xpbase, struct BinSort *B,
+static void binsort_worker_calcdist(struct XPBase *xpbase, binsort_t *B,
 	struct HashMessage *msg)
 {
 	int y, x, i = 0;
@@ -803,7 +833,7 @@ static void binsort_worker(struct XPBase *xpbase)
 	struct XPThread *self = (*xpbase->findthread)(xpbase, NULL);
 	struct XPPort *port = (*xpbase->getuserport)(xpbase, self);
 	XPSIGMASK sig, portsig = (*xpbase->getportsignal)(xpbase, port);
-	struct BinSort *B = (*xpbase->getdata)(xpbase, self);
+	binsort_t *B = (*xpbase->getdata)(xpbase, self);
 	do
 	{
 		struct XPMessage *xpmsg;
@@ -835,11 +865,11 @@ static void binsort_worker(struct XPBase *xpbase)
 **	init, free
 */
 
-static void binsort_freeworkers(struct BinSort *B)
+static void binsort_freeworkers(binsort_t *B)
 {
 	if (B->b_Workers)
 	{
-		int nt = B->b_Arguments->arg_Workers;
+		int nt = B->b_NumWorkers;
 		int i;
 		for (i = 0; i < nt; ++i)
 		{
@@ -858,9 +888,9 @@ static void binsort_freeworkers(struct BinSort *B)
 	}
 }
 
-static binsort_error_t binsort_initworkers(struct BinSort *B)
+static binsort_error_t binsort_initworkers(binsort_t *B)
 {
-	int nt = B->b_Arguments->arg_Workers;
+	int nt = B->b_NumWorkers;
 	int i;
 	B->b_Workers = malloc(sizeof *B->b_Workers * nt);
 	for (i = 0; i < nt; ++i)
@@ -876,8 +906,7 @@ static binsort_error_t binsort_initworkers(struct BinSort *B)
 	return BINSORT_ERROR_SUCCESS;
 }
 
-static binsort_error_t binsort_init(struct BinSort *B,
-	binsort_args_t *args)
+static binsort_error_t binsort_init(binsort_t *B, binsort_argitem_t *args)
 {
 	binsort_error_t err = BINSORT_ERROR_ARGUMENTS;
 	memset(B, 0, sizeof *B);
@@ -887,13 +916,22 @@ static binsort_error_t binsort_init(struct BinSort *B,
 	while (args)
 	{
 		struct XPBase *xpbase;
-		B->b_Arguments = args;
-		if (args->arg_Directory == NULL)
+
+		B->b_Directory = (const char *) GetTag(args,
+			BINSORT_ARG_DIRECTORY, 0);
+		if (B->b_Directory == NULL)
 			break;
-		if (args->arg_Quality < 1 || args->arg_Quality > 1000)
+		B->b_Quality = GetTag(args, 
+			BINSORT_ARG_QUALITY, BINSORT_DEFAULT_QUALITY);
+		if (B->b_Quality < 1 || B->b_Quality > 1000)
 			break;
-		if (args->arg_Workers < 1 || args->arg_Workers > 128)
+		B->b_NumWorkers = GetTag(args,
+			BINSORT_ARG_NUMWORKERS, BINSORT_DEFAULT_NUMTHREADS);
+		if (B->b_NumWorkers < 1 || B->b_NumWorkers > 128)
 			break;
+		B->b_Quiet = GetTag(args, BINSORT_ARG_QUIET, 0);
+		B->b_NumWorkers = GetTag(args, BINSORT_ARG_NUMWORKERS, 0);
+		
 		err = BINSORT_ERROR_THREAD_INIT;
 		B->b_XPBase = xpbase = xpthread_create(NULL);
 		if (xpbase == NULL)
@@ -910,14 +948,14 @@ static binsort_error_t binsort_init(struct BinSort *B,
 	return err;
 }
 
-static void binsort_freedir(struct BinSort *B)
+static void binsort_freedir(binsort_t *B)
 {
 	struct Node *node;
 	while ((node = RemTail(&B->b_DirList.dls_Head)))
 		free(node);
 }
 
-static void binsort_freehashes(struct BinSort *B)
+static void binsort_freehashes(binsort_t *B)
 {
 	struct Node *node;
 	while ((node = RemTail(&B->b_Hashes.hls_Head)))
@@ -925,14 +963,14 @@ static void binsort_freehashes(struct BinSort *B)
 	B->b_Hashes.hls_Num = 0;
 }
 
-static void binsort_freedistances(struct BinSort *B)
+static void binsort_freedistances(binsort_t *B)
 {
 	if (B->b_Distances != NULL)
 		free(B->b_Distances);
 	B->b_Distances = NULL;
 }
 
-static void binsort_free(struct BinSort *B)
+static void binsort_free(binsort_t *B)
 {
 	if (B->b_Order != NULL)
 		free(B->b_Order);
@@ -960,13 +998,13 @@ static void binsort_free(struct BinSort *B)
 **	binsort main procedure
 */
 
-binsort_error_t binsort_run(struct BinSort *B)
+binsort_error_t binsort_run(binsort_t *B)
 {
 	binsort_error_t err;
-	int quiet = B->b_Arguments->arg_Quiet;
+	int quiet = B->b_Quiet;
 	do
 	{
-		err = dirlist_scan(&B->b_DirList, B->b_Arguments->arg_Directory);
+		err = dirlist_scan(&B->b_DirList, B->b_Directory);
 		if (err)
 		{
 			fprintf(stderr, "*** error scanning directory\n");
@@ -984,7 +1022,8 @@ binsort_error_t binsort_run(struct BinSort *B)
 			break;
 		}
 		
-		if (B->b_Hashes.hls_Num > 2) /* need min. 3 files to optimize */
+		/* need min. 3 files to optimize */
+		if (B->b_Hashes.hls_Num > 2)
 		{
 			if (!quiet)
 				fprintf(stderr, "calculating %d distances ...\n",
@@ -1031,13 +1070,13 @@ binsort_error_t binsort_run(struct BinSort *B)
 	return err;
 }
 
-void binsort_destroy(struct BinSort *B)
+void binsort_destroy(binsort_t *B)
 {
 	binsort_free(B);
 	free(B);
 }
 
-binsort_error_t binsort_create(struct BinSort **B, binsort_args_t *args)
+binsort_error_t binsort_create(binsort_t **B, binsort_argitem_t *args)
 {
 	binsort_error_t err = BINSORT_ERROR_OUT_OF_MEMORY;
 	*B = malloc(sizeof **B);
