@@ -38,13 +38,12 @@ Note: Results are not stable unless you specify -t 1.
 Results are not stable with more than one thread because binsort uses
 a heuristic optimization algorithm, which depends on large numbers of
 high-quality pseudo random numbers. Each thread operates on a number
-generator of its own, and if two threads compete for an overlapping
+generator of its own, and if two threads race for an overlapping
 range of data points, one is locked out and will compute a new pair
 of random numbers, hence their unpredictability.
 
 Memory consumption: Converges to the squared number of files, in
-bytes. Please consider this before sorting e.g. 100.000 files. On a
-32bit architecture, this cannot work anyway.
+bytes. Please consider this before sorting e.g. 100.000 files.
 
 Performance example:
 

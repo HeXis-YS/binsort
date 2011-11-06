@@ -37,8 +37,7 @@ range of data points, one is locked out and will compute a new pair
 of random numbers, hence their unpredictability.
 
 Memory consumption: Converges to the squared number of files, in
-bytes. Please consider this before sorting e.g. 100.000 files. On a
-32bit architecture, this cannot work anyway.
+bytes. Please consider this before sorting e.g. 100.000 files.
 
 Performance example:
 
