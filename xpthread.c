@@ -33,7 +33,7 @@ typedef pthread_mutex_t XPMUTEX;
 #define XPT_MUTEX_INIT(lock) (pthread_mutex_init((lock), NULL) == 0)
 #define XPT_MUTEX_DESTROY(lock) pthread_mutex_destroy(lock)
 #define XPT_MUTEX_LOCK(lock) pthread_mutex_lock(lock)
-#define XPT_MUTEX_TRYLOCK(lock) pthread_mutex_trylock(lock)
+#define XPT_MUTEX_TRYLOCK(lock) (pthread_mutex_trylock(lock) == 0)
 #define XPT_MUTEX_UNLOCK(lock) pthread_mutex_unlock(lock)
 
 typedef void *XPTHREADENTRY;
@@ -633,7 +633,7 @@ static void xp_lockfastmutex(struct XPBase *xpbase,
 {
 	int i;
 	for (i = 0; i < 4000; ++i)
-		if (XPT_MUTEX_TRYLOCK((XPMUTEX *) fastmutex) == 0)
+		if (XPT_MUTEX_TRYLOCK((XPMUTEX *) fastmutex))
 			return;
 	XPT_MUTEX_LOCK((XPMUTEX *) fastmutex);
 }

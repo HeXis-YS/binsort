@@ -5,19 +5,15 @@ Copyright (c) 2011 by Timm S. Mueller
 Licensed under the 3-clause BSD license, see COPYRIGHT
 
 Scans the contents of a directory, groups the files by binary
-similarity, generates a filelist and prints the list to stdout. One
-possible application is to pass the list to an archiving tool, e.g.:
+similarity, generates a filelist and prints the list to stdout. 
+
+One possible application is to pass the list to an archiving tool, 
+e.g.:
 
 $ binsort <dir> | tar -T- --no-recursion -czf out.tar.gz
 
 This can improve compression rates considerably, although sorting is
 in no way optimized for a particular compression algorithm.
-
-This is a research project combining threshold accepting,
-shingleprinting, and massive multithreading. It uses simhash by Bart
-Massey [1], and Tiny Mersenne Twister by Mutsuo Saito and Makoto
-Matsumoto [2]. See COPYRIGHT for the respective copyright holders'
-licensing terms.
 
 Usage: binsort [options] dir
 Options:
@@ -35,10 +31,16 @@ bytes. Please consider this before sorting e.g. 100.000 files.
 Performance example:
 
 Binsorting the distribution of abiword 2.8.6 (44029103 bytes in 3391
-files) on a quadcore CPU takes approx. 14s, and produces a tar.gz
-approx. 14.3% smaller than without processing.
+files) on a quadcore CPU takes approx. 12s, and produces a tar.gz
+more than 14% smaller than without processing.
 
 Further notes:
+
+This is a research project combining threshold accepting,
+shingleprinting, and massive multithreading. It uses simhash by Bart
+Massey [1], and Tiny Mersenne Twister by Mutsuo Saito and Makoto
+Matsumoto [2]. See COPYRIGHT for the respective copyright holders'
+licensing terms.
 
 Binsort performs three time-consuming substeps: Hashing, distance
 calculation, and optimizing. All three have been parallelized and can
@@ -51,7 +53,7 @@ calculation and optimizing have quadratic time complexity.
 Hashing and distances calculation are completely parallelizable, and
 do not suffer from an increased overhead for synchronization. During
 optimization, threads compete for certain fields in the same data
-structure. Locking can be reduced to short code sections, and this
+structure, but locking can be reduced to short code sections, so this
 step is (to some extent) parallalizable as well. Too many threads,
 however, can impair the performance.
 

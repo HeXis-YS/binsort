@@ -42,7 +42,7 @@
 #include "tinymt32.h"
 #include "binsort.h"
 
-typedef int32_t num_t;
+typedef int64_t num_t;
 typedef int64_t dist_t;
 
 typedef enum 
@@ -91,8 +91,8 @@ struct HashMessage
 	struct HashList *hm_HashList;
 	struct Distances *hm_Distances;
 	struct HashNode *hm_StartNode;
-	int hm_FirstIndex;
-	int hm_LastIndex;
+	num_t hm_FirstIndex;
+	num_t hm_LastIndex;
 };
 
 struct OptMessage
@@ -134,7 +134,7 @@ struct Distances
 struct RangeNode 
 {
 	struct Node rn_Node;
-	uint32_t rn_First, rn_Last;
+	num_t rn_First, rn_Last;
 };
 
 struct BinSort
@@ -269,7 +269,9 @@ static __inline void Remove(struct Node *node)
 static binsort_error_t dirlist_scan(struct DirList *list, const char *dirname)
 {
 	struct Node *next, *node = list->dls_Head.lh_TailPred;
-	int num = 0, err = BINSORT_ERROR_SUCCESS, res = 0;
+	binsort_error_t err = BINSORT_ERROR_SUCCESS;
+	int res = 0;
+	num_t num = 0;
 	struct dirent *dp;
 	size_t pathlen = strlen(dirname);
 	DIR *dir = opendir(dirname);
@@ -323,7 +325,7 @@ static binsort_error_t dirlist_scan(struct DirList *list, const char *dirname)
 	}
 	if (!err)
 	{
-		int i = 0;
+		num_t i = 0;
 		node = node->ln_Succ;
 		for (; i < num && (next = node->ln_Succ); node = next, ++i)
 		{
@@ -347,7 +349,7 @@ static binsort_error_t binsort_genhashes(binsort_t *B)
 	XPSIGMASK sig, portsig = B->b_ReplyPortSignal;
 	struct Node *next, *node = B->b_DirList.dls_Head.lh_Head;
 	int numworkers = B->b_NumWorkers;
-	int sent = 0;
+	num_t sent = 0;
 	int quiet = B->b_Quiet;
 	
 	for (; (next = node->ln_Succ); node = next)
@@ -378,7 +380,7 @@ static binsort_error_t binsort_genhashes(binsort_t *B)
 				AddTail(&B->b_Hashes.hls_Head, &hashnode->hn_Node);
 			}
 			if ((--sent & 127) == 0 && !quiet)
-				fprintf(stderr, "%d files left   \r", sent);
+				fprintf(stderr, "%ld files left   \r", (long int) sent);
 		}
 	}
 	
@@ -412,7 +414,7 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 	
 	do
 	{
-		int y, i, i0;
+		num_t y, i, i0;
 		struct Node *ynext, *ynode = hashes->hls_Head.lh_Head;
 		double a0 = num * num / numworkers;
 		struct Distances *d = malloc(sizeof *d + num * num);
@@ -428,7 +430,7 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 				struct HashNode *yhash = (struct HashNode *) ynode;
 				struct XPThread *worker = B->b_Workers[i];
 				struct XPPort *port = (*xpbase->getuserport)(xpbase, worker);
-				int i1 = num - 1;
+				num_t i1 = num - 1;
 				if (i < numworkers - 1)
 					i1 = floor(sqrt((i + 1) * a0)) - 1;
 				msgs[i].hm_Message.msg_Type = MSG_CALCDIST;
@@ -453,8 +455,8 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 			--numworkers;
 		if (!B->b_Quiet && (sig & XPT_SIG_UPDATE))
 		{
-			fprintf(stderr, "%d distances left           \r", 
-				B->b_DistancesLeft);
+			fprintf(stderr, "%ld distances left           \r", 
+				(long int) B->b_DistancesLeft);
 		}
 	} while (numworkers > 0);
 	free(msgs);
@@ -503,13 +505,13 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 	XPSIGMASK portsig = B->b_ReplyPortSignal;
 	struct DirList *dlist = &B->b_DirList;
 	struct Distances *distances = B->b_Distances;
-	int num, i;
-	dist_t d;
 	struct Node *next, *node;
 	struct DirEntry **order;
 	int numworkers = B->b_NumWorkers;
 	int quality = B->b_Quality;
-	num_t startpos;
+	num_t startpos, num;
+	dist_t d;
+	int i;
 	struct OptMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
 		return BINSORT_ERROR_OUT_OF_MEMORY;
@@ -788,7 +790,7 @@ static void binsort_worker_hash(struct Message *msg)
 static void binsort_worker_calcdist(struct XPBase *xpbase, binsort_t *B,
 	struct HashMessage *msg)
 {
-	int y, x, i = 0;
+	num_t y, x, i = 0;
 	struct Node *ynext, *ynode = (struct Node *) msg->hm_StartNode;
 	struct HashList *hashes = msg->hm_HashList;
 	size_t num = hashes->hls_Num;
@@ -815,7 +817,7 @@ static void binsort_worker_calcdist(struct XPBase *xpbase, binsort_t *B,
 			if ((++i & 262143) == 0)
 			{
 				(*xpbase->lockfastmutex)(xpbase, B->b_Lock);
-				B->b_DistancesLeft -= 262143;
+				B->b_DistancesLeft -= 262144;
 				(*xpbase->unlockfastmutex)(xpbase, B->b_Lock);
 				(*xpbase->signal)(xpbase, B->b_Self, XPT_SIG_UPDATE);
 			}
@@ -869,8 +871,7 @@ static void binsort_freeworkers(binsort_t *B)
 {
 	if (B->b_Workers)
 	{
-		int nt = B->b_NumWorkers;
-		int i;
+		int i, nt = B->b_NumWorkers;
 		for (i = 0; i < nt; ++i)
 		{
 			struct XPThread *thread = B->b_Workers[i];
@@ -890,8 +891,7 @@ static void binsort_freeworkers(binsort_t *B)
 
 static binsort_error_t binsort_initworkers(binsort_t *B)
 {
-	int nt = B->b_NumWorkers;
-	int i;
+	int i, nt = B->b_NumWorkers;
 	B->b_Workers = malloc(sizeof *B->b_Workers * nt);
 	for (i = 0; i < nt; ++i)
 	{
@@ -988,7 +988,6 @@ static void binsort_free(binsort_t *B)
 		xpthread_destroy(B->b_XPBase);
 }
 
-
 /*
 **	Public interface starts here
 */
@@ -1012,8 +1011,8 @@ binsort_error_t binsort_run(binsort_t *B)
 		}
 		
 		if (!quiet)
-			fprintf(stderr, "simhashing %d files ...\n", 
-				B->b_DirList.dls_NumFiles);
+			fprintf(stderr, "simhashing %ld files ...\n", 
+				(long int) B->b_DirList.dls_NumFiles);
 		
 		err = binsort_genhashes(B);
 		if (err)
@@ -1026,8 +1025,8 @@ binsort_error_t binsort_run(binsort_t *B)
 		if (B->b_Hashes.hls_Num > 2)
 		{
 			if (!quiet)
-				fprintf(stderr, "calculating %d distances ...\n",
-					B->b_Hashes.hls_Num * B->b_Hashes.hls_Num / 2);
+				fprintf(stderr, "calculating %ld distances ...\n", (long int)
+					(B->b_Hashes.hls_Num * B->b_Hashes.hls_Num / 2));
 			
 			err = binsort_gendistances(B);
 			if (err)
