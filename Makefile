@@ -1,9 +1,29 @@
+#-----------------------------------------------------------------------------
+# configurable section
+#-----------------------------------------------------------------------------
 
-DEFS = -DXPT_PTHREADS # -DNDEBUG # use XPT_WINDOWS for native Windows threads
-WARN = -ansi -pedantic -Wall -Wextra -Wno-unused-parameter
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# POSIX:
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+CC = $(CROSS_COMPILE)gcc
+PLATFORM_DEFS = -DXPT_PTHREADS
+PLATFORM_LIBS = -lpthread -lm
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# For Windows using MingW:
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# CC = $(CROSS_COMPILE)gcc -mno-cygwin
+# PLATFORM_DEFS = -DXPT_WINDOWS
+# PLATFORM_LIBS = # empty
+# CROSS_COMPILE = i686-pc-mingw32-
+
+#-----------------------------------------------------------------------------
+
+WARN = -Wall -Wextra -Wno-unused-parameter # -ansi -pedantic 
 OPT = -O2
-CFLAGS = $(DEFS) $(WARN) $(OPT)
-CC = gcc # -g
+CFLAGS = $(PLATFORM_DEFS) $(WARN) $(OPT) # -g
 
 
 all: binsort
@@ -20,7 +40,7 @@ binsort.o: binsort.h xpthread.h simhash.h tinymt32.h
 main.o: binsort.h
 
 $(binsort_exe): $(binsort_objs)
-	$(CC) $(binsort_objs) -o $@ -lpthread -lm
+	$(CC) $(binsort_objs) -o $@ $(PLATFORM_LIBS)
 
 clean:
 	-rm $(binsort_objs) $(binsort_exe)
