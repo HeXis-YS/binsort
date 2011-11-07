@@ -1,8 +1,6 @@
 #ifndef BINSORT_H
 #define BINSORT_H
 
-#include <stdint.h>
-
 /*
 **	Binsort - library interface
 **
@@ -11,6 +9,8 @@
 **
 **	See annotations in README and binsort.c
 */
+
+#include <stdint.h>
 
 #define BINSORT_DEFAULT_QUALITY 15
 #define BINSORT_DEFAULT_NUMTHREADS 3

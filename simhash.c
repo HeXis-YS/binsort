@@ -645,7 +645,7 @@ const uint8_t *simhash_get(struct simhash *hi, size_t *len)
 	return (const uint8_t *) hi->feature;
 }
 
-#if defined(SIMHASH_UNNEEDED)
+#if defined(SIMHASH_READWRITE)
 int simhash_write(struct simhash *hi, FILE *f)
 {
 	int16_t s = htons(FILE_VERSION);	/* file/CRC version */
@@ -718,7 +718,7 @@ struct simhash *simhash_read(FILE *f)
 	} while (0);
 	return simhash_free(h);
 }
-#endif /* defined(SIMHASH_UNNEEDED) */
+#endif /* defined(SIMHASH_READWRITE) */
 
 int simhash_compare(struct simhash *h1, struct simhash *h2, double *val)
 {

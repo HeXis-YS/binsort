@@ -29,13 +29,6 @@ Options:
 
 Note: Results are not stable unless you specify -t 1.
 
-Results are not stable with more than one thread because binsort uses
-a heuristic optimization algorithm, which depends on large numbers of
-high-quality pseudo random numbers. Each thread operates on a number
-generator of its own, and if two threads race for an overlapping
-range of data points, one is locked out and will compute a new pair
-of random numbers, hence their unpredictability.
-
 Memory consumption: Converges to the squared number of files, in
 bytes. Please consider this before sorting e.g. 100.000 files.
 
@@ -61,6 +54,13 @@ optimization, threads compete for certain fields in the same data
 structure. Locking can be reduced to short code sections, and this
 step is (to some extent) parallalizable as well. Too many threads,
 however, can impair the performance.
+
+Results are not stable with more than one thread because binsort uses
+a heuristic optimization algorithm, which depends on large numbers of
+high-quality pseudo random numbers. Each thread operates on a number
+generator of its own, and if two threads race for an overlapping
+range of data points, one is locked out and will compute a new pair
+of random numbers, hence their unpredictability.
 
 Contact:
 Timm S. Mueller <tmueller@schulze-mueller.de>

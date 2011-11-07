@@ -112,7 +112,6 @@ int main(int argc, char **argv)
 					": Number of threads must be between 1 and 128\n");
 				break;
 			}
-			
 			err = binsort_create(&B, args);
 			if (!err)
 			{
@@ -139,6 +138,5 @@ int main(int argc, char **argv)
 		printf("  -h  --help  This help\n");
 		printf("\nNote: Results are not stable unless you specify -t 1.\n");
 	}
-	
 	return res;
 }
