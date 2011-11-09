@@ -44,6 +44,7 @@
 
 typedef int64_t num_t;
 typedef int64_t dist_t;
+typedef int bool_t;
 
 typedef enum 
 {
@@ -61,8 +62,8 @@ struct Node
 struct Message
 {
 	struct XPMessage msg_XPMessage;
-	msgtype_t msg_Type;
 	void *msg_Data;
+	msgtype_t msg_Type;
 };
 
 struct List
@@ -95,15 +96,25 @@ struct HashMessage
 	num_t hm_LastIndex;
 };
 
+struct Random
+{
+	uint64_t rnd_RandPool;
+	tinymt32_t rnd_Seed;
+	num_t rnd_NumRange;
+	num_t rnd_BitMask;
+	num_t rnd_NumBits;
+	num_t rnd_RandBits;
+};
+
 struct OptMessage
 {
 	struct Message om_Message;
-	num_t om_NumEntries;
-	num_t om_NumIterations;
+	struct Random om_Random;
 	struct DirEntry **om_Order;
-	tinymt32_t om_Random;
 	struct Distances *om_Distances;
 	dist_t om_InitialDistance;
+	num_t om_NumEntries;
+	num_t om_NumIterations;
 };
 
 struct DirList
@@ -118,11 +129,11 @@ struct DirEntry
 	struct Node den_Node;
 	struct Message den_Message;
 	const char *den_Name;
-	uint8_t den_IsFile;
-	uint8_t den_IsDir;
+	struct HashNode *den_HashNode;
 	num_t den_Index;
 	binsort_error_t den_Error;
-	struct HashNode *den_HashNode;
+	bool_t den_IsFile;
+	bool_t den_IsDir;
 };
 
 struct Distances
@@ -139,12 +150,12 @@ struct RangeNode
 
 struct BinSort
 {
-	/* Arguments */
-	const char *b_Directory;
-	int b_Quality;
-	int b_NumWorkers;
-	int b_Quiet;
-	int b_NoDirs;
+	/* List of all files, directories and other filesystem objects */
+	struct DirList b_DirList;
+	/* List of simhashes */
+	struct HashList b_Hashes;
+	/* Distances structure */
+	struct Distances *b_Distances;
 	/* Threading library base */
 	struct XPBase *b_XPBase;
 	/* Main thread context */
@@ -153,14 +164,18 @@ struct BinSort
 	struct XPThread **b_Workers;
 	/* Message port for worker replies */
 	struct XPPort *b_ReplyPort;
+	/* Directory name */
+	const char *b_Directory;
+	/* Optimization quality */
+	int b_Quality;
+	/* Number of worker threads */
+	int b_NumWorkers;
+	/* Silent operation */
+	bool_t b_Quiet;
+	/* No directories in output */
+	bool_t b_NoDirs;
 	/* Signal bit for worker replyport */
 	XPSIGMASK b_ReplyPortSignal;
-	/* List of all files, directories and other filesystem objects */
-	struct DirList b_DirList;
-	/* List of simhashes */
-	struct HashList b_Hashes;
-	/* Distances structure */
-	struct Distances *b_Distances;
 	/* Number of distances left to calculate */
 	num_t b_DistancesLeft;
 	/* Locking object for the following fields */
@@ -495,6 +510,49 @@ static dist_t getdist(struct DirEntry **order, num_t num,
 }
 
 /*
+**	random
+*/
+
+static void random_init(struct Random *rnd, num_t range)
+{
+	num_t bitmask = 1;
+	num_t numbits = 1;
+	while (bitmask < range)
+	{
+		bitmask = (bitmask << 1) | 1;
+		numbits++;
+	}	
+	rnd->rnd_NumRange = range;
+	rnd->rnd_BitMask = bitmask;
+	rnd->rnd_NumBits = numbits;
+	rnd->rnd_RandBits = 0; /* number of bits in pool */
+}
+
+static uint32_t random_get(struct Random *rnd)
+{
+	uint64_t randpool = rnd->rnd_RandPool;
+	num_t randbits = rnd->rnd_RandBits;
+	num_t numbits = rnd->rnd_NumBits;
+	uint32_t r;
+	do
+	{
+		if (randbits < 32)
+		{
+			randpool |= 
+				((uint64_t) tinymt32_generate_uint32(&rnd->rnd_Seed)) 
+					<< randbits;
+			randbits += 32;
+		}
+		r = randpool & rnd->rnd_BitMask;
+		randpool >>= numbits;
+		randbits -= numbits;
+	} while (r >= rnd->rnd_NumRange);
+	rnd->rnd_RandPool = randpool;
+	rnd->rnd_RandBits = randbits;
+	return r;
+}
+
+/*
 **	generate order - optimization main function
 */
 
@@ -540,12 +598,16 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 	{
 		struct XPThread *worker = B->b_Workers[i];
 		struct XPPort *port = (*xpbase->getuserport)(xpbase, worker);
+		
 		msgs[i].om_Message.msg_Type = MSG_OPTIMIZE;
 		msgs[i].om_Message.msg_Data = &msgs[i];
 		msgs[i].om_NumEntries = num;
 		msgs[i].om_Order = order;
-		memset(&msgs[i].om_Random, 0x5a, sizeof msgs[i].om_Random);
-		tinymt32_init(&msgs[i].om_Random, 4567 + i);
+
+		memset(&msgs[i].om_Random.rnd_Seed, 0x5a, sizeof msgs[i].om_Random.rnd_Seed);
+		tinymt32_init(&msgs[i].om_Random.rnd_Seed, 4567 + i);
+		random_init(&msgs[i].om_Random, num);
+		
 		msgs[i].om_Distances = distances;
 		msgs[i].om_InitialDistance = d * 20;
 		msgs[i].om_NumIterations = pow(d, 1.1) * quality / numworkers;
@@ -576,7 +638,6 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 	return BINSORT_ERROR_SUCCESS;
 }
 
-
 /*
 **	optimization worker
 */
@@ -584,8 +645,8 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	struct OptMessage *msg)
 {
+	struct Random *random = &msg->om_Random;
 	struct DirEntry **order = msg->om_Order;
-	tinymt32_t *random = &msg->om_Random;
 	num_t num = msg->om_NumEntries;
 	struct Distances *distances = B->b_Distances;
 	struct List *rangelist = &B->b_RangeList;
@@ -597,7 +658,8 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	num_t arrnum = distances->dst_Num;
 	const uint8_t *array = distances->dst_Array;
 	double dunk = 
-		(double) msg->om_InitialDistance * 1.3 / msg->om_NumIterations;
+		(double) msg->om_InitialDistance * 1.1 / msg->om_NumIterations;
+
 	for (i = 1; i < msg->om_NumIterations; ++i)
 	{
 		double thresh = (double) msg->om_InitialDistance / i - dunk;
@@ -608,8 +670,9 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 
 		again:
 		
-		i0 = tinymt32_generate_uint32(random) % num;
-		i1 = tinymt32_generate_uint32(random) % num;
+		i0 = random_get(random);
+		i1 = random_get(random);
+		
 		n = 0;
 
 		if (i0 >= i1 + 2)
@@ -683,7 +746,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 		b = order[i1]->den_Index;
 		c = order[i00]->den_Index;
 		d = order[i11]->den_Index;
-		
+
 		if (a >= 0)
 		{
 			a *= arrnum;
@@ -703,22 +766,19 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 			struct RangeNode rangelock;
 			struct DirEntry *t;
 			num_t i;
-
+			
 			B->b_CurrentDistance += delta;
-
+			
 			t = order[i0];
 			order[i0] = order[i1];
 			order[i1] = t;
 
 			if (n > 3)
 			{
-				if (n > 8)
-				{
-					rangelock.rn_First = i0;
-					rangelock.rn_Last = i1;
-					AddTail(rangelist, &rangelock.rn_Node);
-					(*xpbase->unlockfastmutex)(xpbase, lock);
-				}
+				rangelock.rn_First = i0;
+				rangelock.rn_Last = i1;
+				AddTail(rangelist, &rangelock.rn_Node);
+				(*xpbase->unlockfastmutex)(xpbase, lock);
 
 				i0 = (i0 + 1) % num;
 				if (--i1 < 0) i1 += num;
@@ -732,11 +792,8 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 					if (--i1 < 0) i1 += num;
 				}
 
-				if (n > 8)
-				{
-					(*xpbase->lockfastmutex)(xpbase, lock);
-					Remove(&rangelock.rn_Node);
-				}
+				(*xpbase->lockfastmutex)(xpbase, lock);
+				Remove(&rangelock.rn_Node);
 			}
 		}
 		
@@ -1000,7 +1057,7 @@ static void binsort_free(binsort_t *B)
 binsort_error_t binsort_run(binsort_t *B)
 {
 	binsort_error_t err;
-	int quiet = B->b_Quiet;
+	bool_t quiet = B->b_Quiet;
 	do
 	{
 		err = dirlist_scan(&B->b_DirList, B->b_Directory);
