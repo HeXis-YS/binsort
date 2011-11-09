@@ -642,6 +642,33 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 **	optimization worker
 */
 
+static __inline dist_t getdelta(struct DirEntry **order, const uint8_t *array, 
+	num_t array_num, num_t i0, num_t i1, num_t i00, num_t i11)
+{
+	dist_t delta = 0;
+
+	num_t a = order[i0]->den_Index;
+	num_t b = order[i1]->den_Index;
+	num_t c = order[i00]->den_Index;
+	num_t d = order[i11]->den_Index;
+	
+	if (a >= 0)
+	{
+		a *= array_num;
+		if (c >= 0) delta -= array[a + c];
+		if (d >= 0) delta += array[a + d];
+	}
+
+	if (b >= 0)
+	{
+		b *= array_num;
+		if (d >= 0) delta -= array[b + d];
+		if (c >= 0) delta += array[b + c];
+	}
+	
+	return delta;
+}
+
 static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	struct OptMessage *msg)
 {
@@ -654,7 +681,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	dist_t delta;
 	struct Node *node, *next;
 	num_t i0, i1, n, i;
-	num_t i11, i00, a, b, c, d;
+	num_t i11, i00;
 	num_t arrnum = distances->dst_Num;
 	const uint8_t *array = distances->dst_Array;
 	double dunk = 
@@ -742,25 +769,7 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 			goto again;
 		}
 		
-		a = order[i0]->den_Index;
-		b = order[i1]->den_Index;
-		c = order[i00]->den_Index;
-		d = order[i11]->den_Index;
-
-		if (a >= 0)
-		{
-			a *= arrnum;
-			if (c >= 0) delta -= array[a + c];
-			if (d >= 0) delta += array[a + d];
-		}
-
-		if (b >= 0)
-		{
-			b *= arrnum;
-			if (d >= 0) delta -= array[b + d];
-			if (c >= 0) delta += array[b + c];
-		}
-		
+		delta = getdelta(order, array, arrnum, i0, i1, i00, i11);
 		if (delta < thresh)
 		{
 			struct RangeNode rangelock;
