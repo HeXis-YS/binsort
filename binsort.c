@@ -73,12 +73,6 @@ struct List
 	struct Node *lh_TailPred;
 };
 
-struct HashList
-{
-	struct List hls_Head;
-	num_t hls_Num;
-};
-
 struct HashNode
 {
 	struct Node hn_Node;
@@ -89,8 +83,6 @@ struct HashNode
 struct HashMessage
 {
 	struct Message hm_Message;
-	struct HashList *hm_HashList;
-	struct Distances *hm_Distances;
 	struct HashNode *hm_StartNode;
 	num_t hm_FirstIndex;
 	num_t hm_LastIndex;
@@ -110,10 +102,6 @@ struct OptMessage
 {
 	struct Message om_Message;
 	struct Random om_Random;
-	struct DirEntry **om_Order;
-	struct Distances *om_Distances;
-	dist_t om_InitialDistance;
-	num_t om_NumEntries;
 	num_t om_NumIterations;
 };
 
@@ -136,12 +124,6 @@ struct DirEntry
 	bool_t den_IsDir;
 };
 
-struct Distances
-{
-	uint8_t *dst_Array;
-	num_t dst_Num;
-};
-
 struct RangeNode 
 {
 	struct Node rn_Node;
@@ -150,12 +132,12 @@ struct RangeNode
 
 struct BinSort
 {
-	/* List of all files, directories and other filesystem objects */
+	/* List of all filesystem objects in directory */
 	struct DirList b_DirList;
 	/* List of simhashes */
-	struct HashList b_Hashes;
-	/* Distances structure */
-	struct Distances *b_Distances;
+	struct List b_Hashes;
+	/* Distances array */
+	uint8_t *b_Distances;
 	/* Threading library base */
 	struct XPBase *b_XPBase;
 	/* Main thread context */
@@ -185,7 +167,10 @@ struct BinSort
 	/* List of ranges currently being processed by workers */
 	struct List b_RangeList;
 	/* Sum of current order's file distances */
+	dist_t b_InitialDistance;
 	dist_t b_CurrentDistance;
+	num_t b_NumHashes;
+	num_t b_NumFiles;
 };
 
 #define XPT_SIG_UPDATE	0x00010000
@@ -391,8 +376,8 @@ static binsort_error_t binsort_genhashes(binsort_t *B)
 			struct HashNode *hashnode = direntry->den_HashNode;
 			if (hashnode)
 			{
-				direntry->den_Index = B->b_Hashes.hls_Num++;
-				AddTail(&B->b_Hashes.hls_Head, &hashnode->hn_Node);
+				direntry->den_Index = B->b_NumHashes++;
+				AddTail(&B->b_Hashes, &hashnode->hn_Node);
 			}
 			if ((--sent & 127) == 0 && !quiet)
 				fprintf(stderr, "%ld files left   \r", (long int) sent);
@@ -413,8 +398,8 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK portsig = B->b_ReplyPortSignal;
 	int numworkers = B->b_NumWorkers;
-	struct HashList *hashes = &B->b_Hashes;
-	num_t num = hashes->hls_Num;
+	struct List *hashes = &B->b_Hashes;
+	num_t num = B->b_NumHashes;
 	struct HashMessage *msgs = malloc(sizeof *msgs * numworkers);
 	if (!msgs)
 		return BINSORT_ERROR_OUT_OF_MEMORY;
@@ -430,14 +415,12 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 	do
 	{
 		num_t y, i, i0;
-		struct Node *ynext, *ynode = hashes->hls_Head.lh_Head;
+		struct Node *ynext, *ynode = hashes->lh_Head;
 		double a0 = num * num / numworkers;
-		struct Distances *d = malloc(sizeof *d + num * num);
+		uint8_t *d = B->b_Distances = malloc(num * num);
 		if (d == NULL)
 			break;
 		B->b_DistancesLeft = (num - 1) * (num - 1) / 2;
-		d->dst_Num = num;
-		d->dst_Array = (uint8_t *) (d + 1);
 		for (i = i0 = y = 0; (ynext = ynode->ln_Succ); ynode = ynext, ++y)
 		{
 			if (y == i0)
@@ -450,11 +433,9 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 					i1 = floor(sqrt((i + 1) * a0)) - 1;
 				msgs[i].hm_Message.msg_Type = MSG_CALCDIST;
 				msgs[i].hm_Message.msg_Data = &msgs[i];
-				msgs[i].hm_HashList = hashes;
 				msgs[i].hm_StartNode = yhash;
 				msgs[i].hm_FirstIndex = i0;
 				msgs[i].hm_LastIndex = i1;
-				msgs[i].hm_Distances = d;
 				(*xpbase->putmsg)(xpbase, port, rport, 
 					&msgs[i].hm_Message.msg_XPMessage);
 				i0 = i1 + 1;
@@ -482,9 +463,12 @@ binsort_error_t binsort_gendistances(binsort_t *B)
 **	get distance (and starting position)
 */
 
-static dist_t getdist(struct DirEntry **order, num_t num, 
-	struct Distances *distances, num_t *p_startpos)
+static dist_t getdist(binsort_t *B, num_t *p_startpos)
 {
+	struct DirEntry **order = B->b_Order;
+	num_t num = B->b_NumFiles;
+	uint8_t *array = B->b_Distances;
+	num_t arrnum = B->b_NumHashes;
 	dist_t d = 0;
 	num_t i0;
 	num_t startpos = 0;
@@ -495,7 +479,7 @@ static dist_t getdist(struct DirEntry **order, num_t num,
 		num_t b = order[(i0 + 1) % num]->den_Index;
 		if (a >= 0 && b >= 0)
 		{
-			dist_t dd = distances->dst_Array[a * distances->dst_Num + b];
+			dist_t dd = array[a * arrnum + b];
 			d += dd;
 			if (dd > worstd)
 			{
@@ -521,7 +505,8 @@ static void random_init(struct Random *rnd, num_t range)
 	{
 		bitmask = (bitmask << 1) | 1;
 		numbits++;
-	}	
+	}
+	rnd->rnd_RandPool = 0;
 	rnd->rnd_NumRange = range;
 	rnd->rnd_BitMask = bitmask;
 	rnd->rnd_NumBits = numbits;
@@ -562,7 +547,6 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 	struct XPPort *rport = B->b_ReplyPort;
 	XPSIGMASK portsig = B->b_ReplyPortSignal;
 	struct DirList *dlist = &B->b_DirList;
-	struct Distances *distances = B->b_Distances;
 	struct Node *next, *node;
 	struct DirEntry **order;
 	int numworkers = B->b_NumWorkers;
@@ -589,27 +573,26 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 			order[num++] = entry;
 		}
 	}
+	
+	B->b_NumFiles = num;
 
 	/* distribute optimization to workers: */
-	d = getdist(order, num, distances, NULL);
+	d = getdist(B, NULL);
+	/*fprintf(stderr, "initial distance: %ld - files: %ld - hashes: %ld\n", 
+		(long int) d, (long int) B->b_NumFiles, B->b_NumHashes);*/
 	B->b_CurrentDistance = d;
+	B->b_InitialDistance = d * 20;
 	
 	for (i = 0; i < numworkers; ++i)
 	{
 		struct XPThread *worker = B->b_Workers[i];
 		struct XPPort *port = (*xpbase->getuserport)(xpbase, worker);
-		
 		msgs[i].om_Message.msg_Type = MSG_OPTIMIZE;
 		msgs[i].om_Message.msg_Data = &msgs[i];
-		msgs[i].om_NumEntries = num;
-		msgs[i].om_Order = order;
-
-		memset(&msgs[i].om_Random.rnd_Seed, 0x5a, sizeof msgs[i].om_Random.rnd_Seed);
+		memset(&msgs[i].om_Random.rnd_Seed, 0x5a, 
+			sizeof msgs[i].om_Random.rnd_Seed);
 		tinymt32_init(&msgs[i].om_Random.rnd_Seed, 4567 + i);
 		random_init(&msgs[i].om_Random, num);
-		
-		msgs[i].om_Distances = distances;
-		msgs[i].om_InitialDistance = d * 20;
 		msgs[i].om_NumIterations = pow(d, 1.1) * quality / numworkers;
 		(*xpbase->putmsg)(xpbase, port, rport, 
 			&msgs[i].om_Message.msg_XPMessage);
@@ -624,7 +607,7 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 				(long int) B->b_CurrentDistance);
 	} while (numworkers > 0);
 
-	d = getdist(order, num, distances, &startpos);
+	d = getdist(B, &startpos);
 	assert(B->b_CurrentDistance == d);
 
 	if (B->b_NoDirs)
@@ -673,23 +656,22 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	struct OptMessage *msg)
 {
 	struct Random *random = &msg->om_Random;
-	struct DirEntry **order = msg->om_Order;
-	num_t num = msg->om_NumEntries;
-	struct Distances *distances = B->b_Distances;
+	struct DirEntry **order = B->b_Order;
+	num_t num = B->b_NumFiles;
 	struct List *rangelist = &B->b_RangeList;
 	struct XPFastMutex *lock = B->b_Lock;
 	dist_t delta;
 	struct Node *node, *next;
 	num_t i0, i1, n, i;
 	num_t i11, i00;
-	num_t arrnum = distances->dst_Num;
-	const uint8_t *array = distances->dst_Array;
+	num_t arrnum = B->b_NumHashes;
+	const uint8_t *array = B->b_Distances;
 	double dunk = 
-		(double) msg->om_InitialDistance * 1.1 / msg->om_NumIterations;
+		(double) B->b_InitialDistance * 1.1 / msg->om_NumIterations;
 
 	for (i = 1; i < msg->om_NumIterations; ++i)
 	{
-		double thresh = (double) msg->om_InitialDistance / i - dunk;
+		double thresh = (double) B->b_InitialDistance / i - dunk;
 		if (thresh < 0) thresh = 0;
 
 		if ((i & 65535) == 0)
@@ -858,15 +840,15 @@ static void binsort_worker_calcdist(struct XPBase *xpbase, binsort_t *B,
 {
 	num_t y, x, i = 0;
 	struct Node *ynext, *ynode = (struct Node *) msg->hm_StartNode;
-	struct HashList *hashes = msg->hm_HashList;
-	size_t num = hashes->hls_Num;
-	struct Distances *d = msg->hm_Distances;
+	struct List *hashes = &B->b_Hashes;
+	uint8_t *array = B->b_Distances;
+	num_t num = B->b_NumHashes;
 	for (y = msg->hm_FirstIndex; 
 		y <= msg->hm_LastIndex && (ynext = ynode->ln_Succ); 
 		ynode = ynext, ++y)
 	{
 		struct HashNode *yhash = (struct HashNode *) ynode;
-		struct Node *xnext, *xnode = hashes->hls_Head.lh_Head;
+		struct Node *xnext, *xnode = hashes->lh_Head;
 		struct simhash h1, h2;
 		simhash_init(&h1, yhash->hn_Hash, yhash->hn_Size);
 		for (x = 0; x < y && (xnext = xnode->ln_Succ); xnode = xnext, ++x)
@@ -878,8 +860,8 @@ static void binsort_worker_calcdist(struct XPBase *xpbase, binsort_t *B,
 			simhash_compare(&h1, &h2, &val);
 			vali = val * 255;
 			vali = 255 - vali;
-			d->dst_Array[x + y * num] = vali;
-			d->dst_Array[y + x * num] = vali;
+			array[x + y * num] = vali;
+			array[y + x * num] = vali;
 			if ((++i & 262143) == 0)
 			{
 				(*xpbase->lockfastmutex)(xpbase, B->b_Lock);
@@ -977,7 +959,7 @@ static binsort_error_t binsort_init(binsort_t *B, binsort_argitem_t *args)
 	binsort_error_t err = BINSORT_ERROR_ARGUMENTS;
 	memset(B, 0, sizeof *B);
 	InitList(&B->b_DirList.dls_Head);
-	InitList(&B->b_Hashes.hls_Head);
+	InitList(&B->b_Hashes);
 	InitList(&B->b_RangeList);
 	while (args)
 	{
@@ -1024,9 +1006,8 @@ static void binsort_freedir(binsort_t *B)
 static void binsort_freehashes(binsort_t *B)
 {
 	struct Node *node;
-	while ((node = RemTail(&B->b_Hashes.hls_Head)))
+	while ((node = RemTail(&B->b_Hashes)))
 		free(node);
-	B->b_Hashes.hls_Num = 0;
 }
 
 static void binsort_freedistances(binsort_t *B)
@@ -1088,11 +1069,11 @@ binsort_error_t binsort_run(binsort_t *B)
 		}
 		
 		/* need min. 3 files to optimize */
-		if (B->b_Hashes.hls_Num > 2)
+		if (B->b_NumHashes > 2)
 		{
 			if (!quiet)
 				fprintf(stderr, "calculating %ld distances ...\n", (long int)
-					(B->b_Hashes.hls_Num * B->b_Hashes.hls_Num / 2));
+					(B->b_NumHashes * B->b_NumHashes / 2));
 			
 			err = binsort_gendistances(B);
 			if (err)
