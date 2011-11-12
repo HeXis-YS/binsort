@@ -89,9 +89,6 @@ struct simhash_global
 /* HASH FILE VERSION */
 #define FILE_VERSION 0xcb01
 
-#define NSHINGLE 8
-#define NFEATURE 128
-
 /****************************************************************************/
 
 static struct simhash_global *simhash_global_alloc(void)
@@ -99,8 +96,8 @@ static struct simhash_global *simhash_global_alloc(void)
 	struct simhash_global *sh = malloc(sizeof *sh);
 	if (sh)
 	{
-		sh->nshingle = NSHINGLE;
-		sh->nfeature = NFEATURE;
+		sh->nshingle = SIMHASH_NSHINGLE;
+		sh->nfeature = SIMHASH_NFEATURE;
 		
 		sh->heap = NULL;
 		sh->nheap = 0;
@@ -738,7 +735,7 @@ struct simhash *simhash_create(const char *hash, size_t len)
 	struct simhash *h = alloc_hashinfo();
 	if (h == NULL)
 		return NULL;
-	h->nshingle = NSHINGLE;
+	h->nshingle = SIMHASH_NSHINGLE;
 	h->nfeature = len / 4;
 	h->feature = malloc(len);
 	if (h->feature)
@@ -753,7 +750,7 @@ struct simhash *simhash_create(const char *hash, size_t len)
 
 void simhash_init(struct simhash *sh, const uint8_t *hash, size_t len)
 {
-	sh->nshingle = NSHINGLE;
+	sh->nshingle = SIMHASH_NSHINGLE;
 	sh->nfeature = len / 4;
 	sh->feature = (uint32_t *) hash;	
 }

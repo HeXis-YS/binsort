@@ -17,6 +17,9 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#define SIMHASH_NSHINGLE 8
+#define SIMHASH_NFEATURE 128
+
 struct simhash
 {
 	uint32_t *feature;
