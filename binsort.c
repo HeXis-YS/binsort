@@ -148,6 +148,14 @@ struct BinSort
 	struct XPPort *b_ReplyPort;
 	/* Directory name */
 	const char *b_Directory;
+	/* Number of files */
+	num_t b_NumFiles;
+	/* Number of hashes */
+	num_t b_NumHashes;
+	/* Number of distances left to calculate */
+	num_t b_DistancesLeft;
+	/* Distance of initial order */
+	dist_t b_InitialDistance;
 	/* Optimization quality */
 	int b_Quality;
 	/* Number of worker threads */
@@ -158,8 +166,6 @@ struct BinSort
 	bool_t b_NoDirs;
 	/* Signal bit for worker replyport */
 	XPSIGMASK b_ReplyPortSignal;
-	/* Number of distances left to calculate */
-	num_t b_DistancesLeft;
 	/* Locking object for the following fields */
 	struct XPFastMutex *b_Lock;
 	/* Current order of file entries */
@@ -167,10 +173,7 @@ struct BinSort
 	/* List of ranges currently being processed by workers */
 	struct List b_RangeList;
 	/* Sum of current order's file distances */
-	dist_t b_InitialDistance;
 	dist_t b_CurrentDistance;
-	num_t b_NumHashes;
-	num_t b_NumFiles;
 };
 
 #define XPT_SIG_UPDATE	0x00010000
@@ -581,7 +584,7 @@ static binsort_error_t binsort_genorder(binsort_t *B)
 	/*fprintf(stderr, "initial distance: %ld - files: %ld - hashes: %ld\n", 
 		(long int) d, (long int) B->b_NumFiles, B->b_NumHashes);*/
 	B->b_CurrentDistance = d;
-	B->b_InitialDistance = d * 20;
+	B->b_InitialDistance = d;
 	
 	for (i = 0; i < numworkers; ++i)
 	{
@@ -666,12 +669,12 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 	num_t i11, i00;
 	num_t arrnum = B->b_NumHashes;
 	const uint8_t *array = B->b_Distances;
-	double dunk = 
-		(double) B->b_InitialDistance * 1.1 / msg->om_NumIterations;
+	dist_t inidist = B->b_InitialDistance * 20;
+	double dunk = (double) inidist * 1.1 / msg->om_NumIterations;
 
 	for (i = 1; i < msg->om_NumIterations; ++i)
 	{
-		double thresh = (double) B->b_InitialDistance / i - dunk;
+		double thresh = (double) inidist / i - dunk;
 		if (thresh < 0) thresh = 0;
 
 		if ((i & 65535) == 0)
@@ -757,9 +760,9 @@ static void binsort_worker_optimize(struct XPBase *xpbase, binsort_t *B,
 			struct RangeNode rangelock;
 			struct DirEntry *t;
 			num_t i;
-			
+
 			B->b_CurrentDistance += delta;
-			
+
 			t = order[i0];
 			order[i0] = order[i1];
 			order[i1] = t;
