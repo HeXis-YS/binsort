@@ -981,6 +981,7 @@ static binsort_error_t binsort_init(binsort_t *B, binsort_argitem_t *args)
 		if (B->b_NumWorkers < 1 || B->b_NumWorkers > 128)
 			break;
 		B->b_Quiet = GetTag(args, BINSORT_ARG_QUIET, 0);
+		B->b_NoDirs = GetTag(args, BINSORT_ARG_NODIRS, 0);
 		B->b_NumWorkers = GetTag(args, BINSORT_ARG_NUMWORKERS, 0);
 		
 		err = BINSORT_ERROR_THREAD_INIT;
