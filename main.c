@@ -103,7 +103,7 @@ int main(int argc, char **argv)
 			if (args[ARG_QUAL].value < 1 || args[ARG_QUAL].value > 1000)
 			{
 				printf(PROG_NAME 
-					": Optimization quality must be between 3 and 128\n");
+					": Optimization quality must be between 1 and 1000\n");
 				break;
 			}
 			if (args[ARG_NUMT].value < 1 || args[ARG_NUMT].value > 128)
