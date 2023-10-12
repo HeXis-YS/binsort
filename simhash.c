@@ -171,10 +171,10 @@ static const uint32_t crc32_tab[] = {
 	0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
 };
 
-static int hash_crc32(char *buf, int i0, int nbuf)
+static uint32_t hash_crc32(unsigned char *buf, int i0, int nbuf)
 {
 	int i = i0;
-	int crc = ~0U;
+	uint32_t crc = ~0U;
 	do
 	{
 		crc = crc32_tab[(crc ^ buf[i]) & 0xFF] ^ (crc >> 8);
@@ -504,21 +504,25 @@ static int running_crc(struct simhash_global *sh, char *buf, FILE *f)
 	for (i = 0; i < sh->nshingle; i++)
 	{
 		int ch = fgetc(f);
-		if (ch == EOF)
+		if (ch == EOF) {
+			fclose(f);
 			return 0;
-		buf[i] = ch;
+		}
+		buf[i] = (unsigned char) ch;
 	}
 	i = 0;
 	while (1)
 	{
 		int ch;
 
-		if (!crc_insert(sh, (uint32_t) hash_crc32(buf, i, sh->nshingle)))
+		if (!crc_insert(sh, hash_crc32(buf, i, sh->nshingle)))
 			return 0; /* error */
 		ch = fgetc(f);
-		if (ch == EOF)
+		if (ch == EOF) {
+			fclose(f);
 			break;
-		buf[i] = ch;
+		}
+		buf[i] = (unsigned char) ch;
 		i = (i + 1) % sh->nshingle;
 	}
 	return 1;
@@ -556,7 +560,7 @@ static struct simhash *get_hashinfo(struct simhash_global *sh)
 static struct simhash *hash_file(struct simhash_global *sh, FILE *f)
 {
 	int success = 0;
-	char *buf = malloc(sh->nshingle);
+	unsigned char *buf = (unsigned char *) malloc(sh->nshingle);
 	if (buf)
 	{
 		if (heap_reset(sh, sh->nfeature))
@@ -589,12 +593,12 @@ static double hashinfo_score(struct simhash *hi1, struct simhash *hi2)
 
 	while (i1 >= 0 && i2 >= 0)
 	{
-		if ((uint32_t) (hi1->feature[i1]) < (uint32_t) (hi2->feature[i2]))
+		if (hi1->feature[i1] < hi2->feature[i2])
 		{
 			--i1;
 			continue;
 		}
-		if ((uint32_t) (hi1->feature[i1]) > (uint32_t) (hi2->feature[i2]))
+		if (hi1->feature[i1] > hi2->feature[i2])
 		{
 			--i2;
 			continue;
@@ -671,7 +675,7 @@ struct simhash *simhash_read(FILE *f)
 	{
 		int i = 0;
 		uint16_t s, version;
-		if (fread(&s, sizeof s, 1, f) != 1)
+		if (fread(&s, sizeof(uint16_t), 1, f) != 1)
 			break;
 		version = ntohs(s);
 		if (version != FILE_VERSION)
@@ -679,7 +683,7 @@ struct simhash *simhash_read(FILE *f)
 			fprintf(stderr, "bad file version\n");
 			break;
 		}
-		if (fread(&s, sizeof s, 1, f) != 1)
+		if (fread(&s, sizeof(uint16_t), 1, f) != 1)
 			break;
 		h->nshingle = ntohs(s);
 		h->nfeature = 16;
@@ -712,6 +716,7 @@ struct simhash *simhash_read(FILE *f)
 			}
 			h->feature[i++] = ntohl(fe);
 		}
+		h->nfeature = i;
 	} while (0);
 	return simhash_free(h);
 }
