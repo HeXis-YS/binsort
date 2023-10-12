@@ -974,7 +974,7 @@ static binsort_error_t binsort_init(binsort_t *B, binsort_argitem_t *args)
 			break;
 		B->b_Quality = GetTag(args, 
 			BINSORT_ARG_QUALITY, BINSORT_DEFAULT_QUALITY);
-		if (B->b_Quality < 1 || B->b_Quality > 1000)
+		if (B->b_Quality < 1 || B->b_Quality > 2147483647)
 			break;
 		B->b_NumWorkers = GetTag(args,
 			BINSORT_ARG_NUMWORKERS, BINSORT_DEFAULT_NUMTHREADS);

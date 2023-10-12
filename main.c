@@ -100,10 +100,10 @@ int main(int argc, char **argv)
 				printf(PROG_NAME ": Directory argument missing\n");
 				break;
 			}
-			if (args[ARG_QUAL].value < 1 || args[ARG_QUAL].value > 1000)
+			if (args[ARG_QUAL].value < 1 || args[ARG_QUAL].value > 2147483647)
 			{
 				printf(PROG_NAME 
-					": Optimization quality must be between 1 and 1000\n");
+					": Optimization quality must be between 1 and 2147483647\n");
 				break;
 			}
 			if (args[ARG_NUMT].value < 1 || args[ARG_NUMT].value > 128)
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 	{
 		printf("Usage: %s [options] dir\n", PROG_NAME);
 		printf("Options:\n");
-		printf("  -o          Optimization level [1...1000], default: %d\n",
+		printf("  -o          Optimization level [1...2147483647], default: %d\n",
 			BINSORT_DEFAULT_QUALITY);
 		printf("  -t          Number of threads [1...128], default: %d\n",
 			BINSORT_DEFAULT_NUMTHREADS);
